@@ -1,0 +1,28 @@
+# Binaries
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Local data
+*.db
+*.db-shm
+*.db-wal
+*.device-id
+/data/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Wails
+build/bin/
+frontend/dist/

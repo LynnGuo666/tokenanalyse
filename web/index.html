@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Token Mirror</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">TM</span>
+        <div>
+          <strong>Token Mirror</strong>
+          <small>跨设备 AI CLI 用量统计</small>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span id="sync-status" class="status-pill">本地模式</span>
+        <button id="refresh-btn" class="btn secondary">刷新</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <nav>
+          <button class="nav-item active" data-view="overview">总览</button>
+          <button class="nav-item" data-view="requests">请求日志</button>
+          <button class="nav-item" data-view="devices">设备</button>
+          <button class="nav-item" data-view="pricing">定价</button>
+        </nav>
+        <div class="sidebar-foot">
+          <span id="agent-version">v0.1.0</span>
+          <span>headless</span>
+        </div>
+      </aside>
+
+      <section class="content">
+        <div class="filters">
+          <label>
+            时间范围
+            <select id="range-select">
+              <option value="1">今天</option>
+              <option value="7" selected>近 7 天</option>
+              <option value="30">近 30 天</option>
+              <option value="0">全部</option>
+            </select>
+          </label>
+          <label>
+            设备
+            <select id="device-select"><option value="">全部设备</option></select>
+          </label>
+          <label>
+            应用
+            <select id="app-select"><option value="">全部应用</option></select>
+          </label>
+          <label>
+            供应商
+            <select id="provider-select"><option value="">全部供应商</option></select>
+          </label>
+          <label>
+            模型
+            <select id="model-select"><option value="">全部模型</option></select>
+          </label>
+        </div>
+
+        <div id="view-overview" class="view">
+          <div class="cards" id="summary-cards"></div>
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>用量趋势</h2>
+                <p id="trend-subtitle">Token / 请求 / 费用</p>
+              </div>
+              <div class="segmented" id="trend-metric">
+                <button class="active" data-metric="tokens">Tokens</button>
+                <button data-metric="requests">请求</button>
+                <button data-metric="cost">费用</button>
+              </div>
+            </div>
+            <div id="trend-chart" class="chart"></div>
+          </div>
+          <div class="grid-2">
+            <div class="panel">
+              <div class="panel-head"><h2>供应商</h2></div>
+              <div class="table-wrap"><table id="provider-table"></table></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h2>模型</h2></div>
+              <div class="table-wrap"><table id="model-table"></table></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="view-requests" class="view hidden">
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>请求日志</h2><p>最近采集的模型调用</p></div>
+              <div class="pagination">
+                <button id="prev-page" class="btn secondary">上一页</button>
+                <span id="page-label">1</span>
+                <button id="next-page" class="btn secondary">下一页</button>
+              </div>
+            </div>
+            <div class="table-wrap"><table id="request-table"></table></div>
+          </div>
+        </div>
+
+        <div id="view-devices" class="view hidden">
+          <div class="panel">
+            <div class="panel-head"><div><h2>设备</h2><p>按设备查看采集状态与用量</p></div></div>
+            <div id="device-cards" class="device-grid"></div>
+          </div>
+        </div>
+
+        <div id="view-pricing" class="view hidden">
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>模型定价</h2><p>价格单位为每百万 Token</p></div>
+              <button id="reload-pricing" class="btn secondary">重新加载</button>
+            </div>
+            <div class="table-wrap"><table id="pricing-table"></table></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast hidden"></div>
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>
