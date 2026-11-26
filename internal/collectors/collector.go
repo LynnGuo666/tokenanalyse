@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"token-mirror/internal/model"
+	"tokenanalyse/internal/model"
 )
 
 type Context struct {

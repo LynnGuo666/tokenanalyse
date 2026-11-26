@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"token-mirror/internal/model"
+	"tokenanalyse/internal/model"
 )
 
 func (db *DB) UpsertDevice(device model.Device) error {

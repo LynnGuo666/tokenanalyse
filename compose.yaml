@@ -1,0 +1,14 @@
+services:
+  tokenanalyse:
+    build: .
+    image: tokenanalyse:local
+    container_name: tokenanalyse
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      TM_API_TOKEN: ${TM_API_TOKEN:-}
+      TM_UPSTREAM: ${TM_UPSTREAM:-}
+      TM_UPSTREAM_TOKEN: ${TM_UPSTREAM_TOKEN:-}
+    volumes:
+      - ./data:/data

@@ -26,6 +26,7 @@
         <nav>
           <button class="nav-item active" data-view="overview">总览</button>
           <button class="nav-item" data-view="requests">请求日志</button>
+          <button class="nav-item" data-view="sessions">会话</button>
           <button class="nav-item" data-view="devices">设备</button>
           <button class="nav-item" data-view="pricing">定价</button>
         </nav>
@@ -106,6 +107,13 @@
           </div>
         </div>
 
+        <div id="view-sessions" class="view hidden">
+          <div class="panel">
+            <div class="panel-head"><div><h2>会话</h2><p>按会话汇总请求、Token 与费用</p></div></div>
+            <div class="table-wrap"><table id="session-table"></table></div>
+          </div>
+        </div>
+
         <div id="view-devices" class="view hidden">
           <div class="panel">
             <div class="panel-head"><div><h2>设备</h2><p>按设备查看采集状态与用量</p></div></div>
@@ -116,10 +124,21 @@
         <div id="view-pricing" class="view hidden">
           <div class="panel">
             <div class="panel-head">
-              <div><h2>模型定价</h2><p>价格单位为每百万 Token</p></div>
+              <div><h2>模型定价</h2><p>价格单位为每百万 Token，统计按当前价格实时重算</p></div>
               <button id="reload-pricing" class="btn secondary">重新加载</button>
             </div>
+            <div id="pricing-sync" class="muted" style="margin-bottom:12px"></div>
             <div class="table-wrap"><table id="pricing-table"></table></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div><h2>模型别名 / 变体</h2><p>将原始模型名映射到统一模型 ID</p></div></div>
+            <div class="alias-form">
+              <input id="alias-pattern" placeholder="原始模型名或前缀" />
+              <input id="alias-canonical" placeholder="标准模型 ID" />
+              <select id="alias-match"><option value="exact">精确</option><option value="prefix">前缀</option><option value="regex">正则</option></select>
+              <button id="alias-add" class="btn primary">添加</button>
+            </div>
+            <div class="table-wrap"><table id="alias-table"></table></div>
           </div>
         </div>
       </section>

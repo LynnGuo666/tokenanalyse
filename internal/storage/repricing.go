@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"token-mirror/internal/model"
+	"tokenanalyse/internal/model"
 
 	"github.com/shopspring/decimal"
 )

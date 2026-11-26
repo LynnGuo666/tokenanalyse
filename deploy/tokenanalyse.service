@@ -1,0 +1,19 @@
+[Unit]
+Description=TokenAnalyse AI CLI usage analytics
+After=network.target
+
+[Service]
+Type=simple
+User=tokenanalyse
+Group=tokenanalyse
+ExecStart=/usr/local/bin/tokenanalyse node --db /var/lib/tokenanalyse/tokenanalyse.db --listen 127.0.0.1:8787
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tokenanalyse
+
+[Install]
+WantedBy=multi-user.target

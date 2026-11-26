@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"token-mirror/internal/model"
+	"tokenanalyse/internal/model"
 
 	"github.com/shopspring/decimal"
 )
@@ -194,6 +194,9 @@ type eventFact struct {
 
 func (db *DB) loadFacts(filters model.UsageFilters) ([]eventFact, error) {
 	where, args := buildFilters(filters)
+	activeVersion, _ := db.ActivePricingVersion()
+	exchangeRate, _ := db.CNYExchangeRate()
+	pricingCatalog := db.loadPricingCatalog(activeVersion)
 	query := `SELECT ` + eventColumns + ` FROM usage_events` + where + ` ORDER BY occurred_at ASC`
 	rows, err := db.conn.Query(query, args...)
 	if err != nil {
@@ -206,9 +209,55 @@ func (db *DB) loadFacts(filters model.UsageFilters) ([]eventFact, error) {
 		if err != nil {
 			return nil, err
 		}
+		fact = db.repriceFact(fact, activeVersion, exchangeRate, pricingCatalog)
 		facts = append(facts, fact)
 	}
 	return facts, rows.Err()
+}
+
+func (db *DB) loadPricingCatalog(versionID string) map[string]model.ModelPricing {
+	catalog := map[string]model.ModelPricing{}
+	if versionID == "" {
+		return catalog
+	}
+	models, _ := db.ListModelPricingForVersion(versionID)
+	for _, entry := range models {
+		catalog[entry.ModelID] = entry
+		catalog[model.NormalizeModelID(entry.ModelID)] = entry
+	}
+	return catalog
+}
+
+func (db *DB) repriceFact(fact eventFact, versionID string, rate decimal.Decimal, catalog map[string]model.ModelPricing) eventFact {
+	if versionID == "" {
+		return fact
+	}
+	var pricing model.ModelPricing
+	found := false
+	for _, candidate := range uniqueStrings(fact.event.PricingModel, fact.event.CanonicalModel, fact.event.Model) {
+		if entry, ok := catalog[candidate]; ok {
+			pricing, found = entry, true
+			break
+		}
+		if entry, ok := catalog[model.NormalizeModelID(candidate)]; ok {
+			pricing, found = entry, true
+			break
+		}
+	}
+	if !found {
+		return fact
+	}
+	breakdown := model.CalculateCost(fact.event.SourceApp, fact.event.Usage, pricing,
+		fact.event.InputTokenSemantics, decimal.RequireFromString(fact.event.CostMultiplier))
+	fact.costUSD, fact.costCNY = breakdown.TotalCost, breakdown.TotalCost
+	if pricing.Currency == model.CurrencyCNY {
+		fact.costUSD = breakdown.TotalCost.Div(rate)
+	} else {
+		fact.costCNY = breakdown.TotalCost.Mul(rate)
+	}
+	fact.event.Cost = buildCostSnapshot(breakdown, pricing.Currency, rate, versionID)
+	fact.event.PricingVersion = versionID
+	return fact
 }
 
 func (db *DB) GetSummary(filters model.UsageFilters) (model.UsageSummary, error) {
@@ -378,6 +427,9 @@ func (db *DB) GetRequestLogs(filters model.UsageFilters, page, pageSize int) (Re
 	}
 	queryArgs := append([]any{}, args...)
 	queryArgs = append(queryArgs, pageSize, (page-1)*pageSize)
+	activeVersion, _ := db.ActivePricingVersion()
+	exchangeRate, _ := db.CNYExchangeRate()
+	pricingCatalog := db.loadPricingCatalog(activeVersion)
 	rows, err := db.conn.Query(`SELECT `+eventColumns+` FROM usage_events`+where+
 		` ORDER BY occurred_at DESC, ingested_at DESC, event_id DESC LIMIT ? OFFSET ?`, queryArgs...)
 	if err != nil {
@@ -390,6 +442,7 @@ func (db *DB) GetRequestLogs(filters model.UsageFilters, page, pageSize int) (Re
 		if err != nil {
 			return RequestLogPage{}, err
 		}
+		fact = db.repriceFact(fact, activeVersion, exchangeRate, pricingCatalog)
 		items = append(items, RequestLogItem{
 			UsageEvent:      fact.event,
 			RealTotalTokens: fact.event.Usage.RealTotal(fact.event.SourceApp, fact.event.InputTokenSemantics),
@@ -397,8 +450,10 @@ func (db *DB) GetRequestLogs(filters model.UsageFilters, page, pageSize int) (Re
 		})
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return RequestLogPage{}, err
 	}
+	rows.Close()
 	devices, err := db.ListDevices()
 	if err != nil {
 		return RequestLogPage{}, err
@@ -423,6 +478,10 @@ func (db *DB) GetRequestDetail(eventID string) (RequestLogItem, error) {
 	if err != nil {
 		return RequestLogItem{}, err
 	}
+	activeVersion, _ := db.ActivePricingVersion()
+	exchangeRate, _ := db.CNYExchangeRate()
+	pricingCatalog := db.loadPricingCatalog(activeVersion)
+	fact = db.repriceFact(fact, activeVersion, exchangeRate, pricingCatalog)
 	item := RequestLogItem{UsageEvent: fact.event,
 		RealTotalTokens: fact.event.Usage.RealTotal(fact.event.SourceApp, fact.event.InputTokenSemantics),
 		TotalCostUSD:    fact.costUSD.String(), TotalCostCNY: fact.costCNY.String()}
@@ -430,6 +489,41 @@ func (db *DB) GetRequestDetail(eventID string) (RequestLogItem, error) {
 		item.DeviceName = device.Name
 	}
 	return item, nil
+}
+
+type rowIDScanner struct {
+	rows *sql.Rows
+	id   int64
+}
+
+func (r *rowIDScanner) Scan(dest ...any) error {
+	args := make([]any, 0, len(dest)+1)
+	args = append(args, &r.id)
+	args = append(args, dest...)
+	return r.rows.Scan(args...)
+}
+
+func (db *DB) GetEventsAfterRowID(after int64, limit int) ([]model.UsageEvent, int64, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	rows, err := db.conn.Query(`SELECT rowid, `+eventColumns+` FROM usage_events WHERE rowid>? ORDER BY rowid LIMIT ?`, after, limit)
+	if err != nil {
+		return nil, after, err
+	}
+	defer rows.Close()
+	events := []model.UsageEvent{}
+	last := after
+	for rows.Next() {
+		scanner := &rowIDScanner{rows: rows}
+		fact, err := scanEventFact(scanner)
+		if err != nil {
+			return nil, after, err
+		}
+		events = append(events, fact.event)
+		last = scanner.id
+	}
+	return events, last, rows.Err()
 }
 
 func (db *DB) GetEventCost(eventID string) (EventCost, error) {

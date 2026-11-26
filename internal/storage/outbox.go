@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"token-mirror/internal/model"
+	"tokenanalyse/internal/model"
 )
 
 type OutboxEntry struct {

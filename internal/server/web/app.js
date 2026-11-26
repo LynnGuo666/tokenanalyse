@@ -231,9 +231,27 @@ async function loadDeviceView() {
   }).join("") || `<div class="muted">暂无设备</div>`;
 }
 
+async function loadSessions() {
+  const result = await api("/sessions", filters());
+  const items = result.items || [];
+  const rows = items.map((item) => `<tr>
+    <td>${escapeHtml(item.deviceName || item.deviceId || "")}</td>
+    <td><span class="tag">${escapeHtml(item.sourceApp || "")}</span></td>
+    <td class="mono">${escapeHtml(item.sessionId || "")}</td>
+    <td class="numeric">${compact(item.requestCount)}</td>
+    <td class="numeric">${compact(item.totalTokens)}</td>
+    <td class="numeric">${money(item.totalCostUsd)}</td>
+    <td>${new Date(item.firstRequestAt).toLocaleString()}</td>
+    <td>${new Date(item.lastRequestAt).toLocaleString()}</td>
+  </tr>`).join("");
+  $("#session-table").innerHTML = `<thead><tr><th>设备</th><th>应用</th><th>会话 ID</th><th class="numeric">请求</th><th class="numeric">Tokens</th><th class="numeric">费用</th><th>首次请求</th><th>最后请求</th></tr></thead><tbody>${rows || `<tr><td colspan="8" class="muted">暂无会话</td></tr>`}</tbody>`;
+}
+
 async function loadPricing() {
   const result = await api("/pricing");
   const models = result.models || [];
+  const sync = result.sync || {};
+  $("#pricing-sync").textContent = `版本 ${result.version || "-"} · 哈希 ${(result.contentHash || "").slice(0, 12)} · 最后更新 ${sync.lastUpdatedAt ? new Date(sync.lastUpdatedAt).toLocaleString() : "-"} · 最后同步 ${sync.lastSyncedAt ? new Date(sync.lastSyncedAt).toLocaleString() : "-"}${sync.lastError ? ` · 错误 ${sync.lastError}` : ""}`;
   $("#pricing-table").innerHTML = `<thead><tr><th>模型</th><th>输入</th><th>输出</th><th>缓存读</th><th>缓存写</th><th>币种</th><th>来源</th></tr></thead><tbody>${models.map((model) => `<tr>
     <td class="mono">${escapeHtml(model.modelId)}</td>
     <td class="numeric">${model.inputCostPerMillion}</td>
@@ -243,6 +261,19 @@ async function loadPricing() {
     <td>${escapeHtml(model.currency || "USD")}</td>
     <td class="muted">${escapeHtml(model.source || "")}</td>
   </tr>`).join("") || `<tr><td colspan="7" class="muted">暂无定价</td></tr>`}</tbody>`;
+  await loadAliases();
+}
+
+async function loadAliases() {
+  const result = await api("/aliases");
+  const items = result.items || [];
+  $("#alias-table").innerHTML = `<thead><tr><th>别名 / 模式</th><th>标准模型</th><th>匹配</th><th>作用域</th><th>优先级</th></tr></thead><tbody>${items.map((alias) => `<tr>
+    <td class="mono">${escapeHtml(alias.aliasPattern)}</td>
+    <td class="mono">${escapeHtml(alias.canonicalModelId)}</td>
+    <td><span class="tag">${escapeHtml(alias.matchType)}</span></td>
+    <td>${escapeHtml(alias.scopeApp || "全局")}</td>
+    <td class="numeric">${alias.priority || 0}</td>
+  </tr>`).join("") || `<tr><td colspan="5" class="muted">暂无别名</td></tr>`}</tbody>`;
 }
 
 async function refresh() {
@@ -251,6 +282,7 @@ async function refresh() {
     await loadDevices();
     if (state.view === "overview") await loadOverview();
     if (state.view === "requests") await loadRequests();
+    if (state.view === "sessions") await loadSessions();
     if (state.view === "devices") await loadDeviceView();
     if (state.view === "pricing") await loadPricing();
   } catch (error) {
@@ -277,6 +309,21 @@ $("#model-select").addEventListener("change", (event) => { state.model = event.t
 $("#prev-page").addEventListener("click", () => { if (state.page > 1) { state.page -= 1; loadRequests(); } });
 $("#next-page").addEventListener("click", () => { state.page += 1; loadRequests(); });
 $("#reload-pricing").addEventListener("click", loadPricing);
+$("#alias-add").addEventListener("click", async () => {
+  const payload = {
+    aliasPattern: $("#alias-pattern").value.trim(),
+    canonicalModelId: $("#alias-canonical").value.trim(),
+    matchType: $("#alias-match").value,
+    scopeApp: "",
+    priority: 100,
+  };
+  if (!payload.aliasPattern || !payload.canonicalModelId) { toast("请填写别名和标准模型 ID"); return; }
+  const response = await fetch("/api/v1/aliases", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  if (!response.ok) { toast("添加失败"); return; }
+  $("#alias-pattern").value = "";
+  $("#alias-canonical").value = "";
+  await loadAliases();
+});
 $$("#trend-metric button").forEach((button) => button.addEventListener("click", () => {
   state.trendMetric = button.dataset.metric;
   $$("#trend-metric button").forEach((item) => item.classList.toggle("active", item === button));

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"token-mirror/internal/model"
+	"tokenanalyse/internal/model"
 )
 
 type ModelAlias = model.ModelAlias

@@ -135,6 +135,9 @@ td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; 
 .device-stat strong { font-size: 15px; }
 
 .pagination { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.alias-form { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.alias-form input, .alias-form select { flex: 1; min-width: 180px; border: 1px solid var(--border); background: #0d1016; color: var(--text); border-radius: 9px; padding: 8px 11px; outline: none; }
+.alias-form input:focus, .alias-form select:focus { border-color: var(--accent); }
 .toast {
   position: fixed; right: 22px; bottom: 22px; z-index: 50;
   background: #202635; border: 1px solid #343d51; color: var(--text);

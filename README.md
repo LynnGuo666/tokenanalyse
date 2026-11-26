@@ -1,131 +1,162 @@
-# Token Mirror
+# TokenAnalyse
 
-一个无需桌面环境的 AI CLI Token 用量统计与多设备同步服务。
+跨平台、可 headless 的 AI CLI Token 用量分析、价格估算与多设备同步服务。
 
-Token Mirror 从 Claude Code、Codex、Gemini CLI、OpenCode 等工具的本地会话日志中增量采集用量，统一 Token 语义，按模型定价估算费用，并通过中心 API 或 WebDAV 在多台设备之间汇总。
+支持 Claude Code、Codex、Gemini CLI、Grok Build、OpenCode、Pi、Oh My Pi、MiniMax Code、Kimi Code、GitHub Copilot CLI、CodeBuddy、WorkBuddy、DeepSeek Harness、MCode、Antigravity 等数据源。
 
-## 特性
+## 主要能力
 
-- **Headless**：单二进制 + SQLite + Web Dashboard，无需 Desktop/GUI。
-- **多数据源**：本地代理日志、CLI 会话日志、CC Switch SQLite 导入。
-- **统一 Token 口径**：fresh input、output、cache read、cache write、real total、cache hit rate。
-- **费用估算**：内置定价、models.dev 导入、自定义价格、USD/CNY。
-- **时间指标**：延迟、首 Token 时间、输出速度、小时/天/周/月趋势。
-- **多设备**：稳定 `device_id`、设备名称、平台、最后在线时间、设备维度统计。
-- **同步**：中心服务批量上报 + 本地 Outbox；WebDAV 每设备独立目录。
-- **幂等**：稳定 `event_id`，重试、重传、重复导入不会重复计数。
-
-## 架构
-
-```text
-Claude/Codex/Gemini/OpenCode 本地日志
-                │
-                ▼
-        Device Collector
-                │
-                ▼
-     SQLite events + outbox
-          │           │
-          │           ├──> Web Dashboard / Query API
-          │           │
-          │           ▼
-          └──> Server API / WebDAV
-                          │
-                          ▼
-                 多设备汇总与查询
-```
-
-Workspace：
-
-- `crates/tm-core`：Token 语义、定价、费用、领域类型
-- `crates/tm-storage`：SQLite、迁移、聚合、Outbox
-- `crates/tm-collectors`：CLI 会话日志采集器
-- `crates/tm-sync`：中心 API / WebDAV 同步
-- `crates/tm-server`：Axum HTTP API + 静态 Dashboard
-- `crates/tm-cli`：单二进制入口
+- **完整用量事件**：输入、输出、推理 Token、缓存读/写、5m/1h 缓存、请求 ID、消息 ID、会话 ID。
+- **时间指标**：总延迟、首 Token、生成时长、输出速度、趋势、热力图。
+- **实时价格**：查询时按当前公共价格表计算；价格更新后历史统计立即重算。
+- **公共价格表**：models.dev 同步、自定义 JSON、节点间合并、冲突策略、版本/哈希/同步时间。
+- **模型别名**：精确、前缀、正则匹配；原始模型、标准模型、计价模型分层保存。
+- **多设备**：稳定 device_id、设备名称、平台、最后在线时间、设备维度统计。
+- **混合节点**：同一二进制可同时作为服务端、采集端和上级客户端。
+- **同步**：中心 API 或 WebDAV；Outbox 至少一次投递；event_id 幂等去重。
+- **跨平台 UI**：Web Dashboard + Wails 桌面应用（Windows / macOS / Linux）。
 
 ## 快速开始
 
 ```bash
-cargo build --release
+go build -o tokenanalyse ./cmd/tokenanalyse
 
-# 采集一次本地 CLI 用量
-./target/release/tm collect --db ./token-mirror.db --device-name "$(hostname)"
+# 单次采集
+./tokenanalyse collect --db ./tokenanalyse.db --device-name "$(hostname)"
 
 # 启动 headless 服务
-./target/release/tm serve --db ./token-mirror.db --listen 127.0.0.1:8787
-
-# 浏览器打开
-# http://127.0.0.1:8787
+./tokenanalyse serve --db ./tokenanalyse.db --listen 127.0.0.1:8787
 ```
 
-API Token：
-
-```bash
-export TM_API_TOKEN='replace-with-a-long-random-token'
-./target/release/tm serve --db ./token-mirror.db --listen 0.0.0.0:8787
-```
-
-请求时携带：
+浏览器打开：
 
 ```text
-Authorization: Bearer $TM_API_TOKEN
+http://127.0.0.1:8787
 ```
 
-## 同步
+## 混合节点
+
+```bash
+./tokenanalyse node \
+  --db ./tokenanalyse.db \
+  --listen 0.0.0.0:8787 \
+  --upstream https://usage.example.com \
+  --upstream-token "$TM_DEVICE_TOKEN"
+```
+
+一个 `node` 同时提供：
+
+1. 本机 CLI 日志采集
+2. 本机 HTTP API / Dashboard
+3. 下级设备上报接入
+4. 向上级服务器同步
+
+从上游拉取的事件不会再次进入上游 Outbox，避免循环同步。
+
+## 价格表
+
+```bash
+# 从 models.dev 同步
+./tokenanalyse pricing sync-models-dev --db ./tokenanalyse.db
+
+# 导入自定义价格 JSON
+./tokenanalyse pricing import --file ./pricing.json --db ./tokenanalyse.db
+
+# 查看当前价格版本与同步状态
+./tokenanalyse pricing show --db ./tokenanalyse.db
+```
+
+自定义 JSON 示例：
+
+```json
+{
+  "models": [
+    {
+      "modelId": "my-model",
+      "displayName": "My Model",
+      "inputCostPerMillion": "1.00",
+      "outputCostPerMillion": "2.00",
+      "cacheReadCostPerMillion": "0.10",
+      "cacheCreationCostPerMillion": "1.25",
+      "currency": "USD"
+    }
+  ]
+}
+```
+
+## 模型别名
+
+```bash
+./tokenanalyse pricing aliases \
+  --alias "vendor/model-v1" \
+  --canonical "model" \
+  --match-type exact
+```
+
+支持：
+
+- `exact`：精确匹配
+- `prefix`：前缀匹配
+- `regex`：正则匹配
+
+## 数据同步
 
 ### 中心服务
 
-设备端：
-
 ```bash
-./target/release/tm sync \
-  --db ./token-mirror.db \
-  --server https://usage.example.com \
-  --token "$TM_DEVICE_TOKEN"
-```
+# 服务端
+./tokenanalyse serve --db ./server.db --listen 0.0.0.0:8787
 
-服务端：
-
-```bash
-./target/release/tm serve --db ./server.db --listen 0.0.0.0:8787
+# 客户端
+./tokenanalyse sync --db ./client.db --server http://server:8787 --token "$TM_DEVICE_TOKEN"
 ```
 
 ### WebDAV
 
 ```bash
-./target/release/tm sync \
-  --db ./token-mirror.db \
+./tokenanalyse sync \
+  --db ./tokenanalyse.db \
   --webdav https://dav.example.com/remote.php/dav/files/user \
   --webdav-user user \
-  --webdav-password app-password \
-  --remote-root token-mirror \
-  --profile default
+  --webdav-password app-password
 ```
-
-远程目录：
-
-```text
-token-mirror/usage-v1/{profile}/devices/{device_id}/batches/*.json
-```
-
-每台设备只写自己的目录，通过稳定 `event_id` 幂等合并。
 
 ## 从 CC Switch 迁移
 
 ```bash
-./target/release/tm import-cc-switch \
+./tokenanalyse import-cc-switch \
   --source ~/.cc-switch/cc-switch.db \
-  --db ./token-mirror.db \
-  --device-name "$(hostname)"
+  --db ./tokenanalyse.db
 ```
 
 ## 开发
 
 ```bash
-cargo fmt --all
-cargo check --workspace
-cargo test --workspace
+go test ./...
+go build ./cmd/tokenanalyse
+```
+
+桌面 UI 使用 Wails：
+
+```bash
+wails build -clean
+```
+
+## 目录结构
+
+```text
+cmd/
+  tokenanalyse/      CLI / headless 服务
+  tokenanalyse-ui/   Wails 桌面应用
+internal/
+  model/             领域模型、Token 语义、费用计算
+  storage/           SQLite、设备、事件、Outbox、价格、统计
+  collectors/        CLI 日志采集器、CC Switch 导入
+  pricing/           models.dev、自定义价格、合并
+  sync/              中心 API / WebDAV 同步
+  server/            HTTP API + Web Dashboard
+  config/            设备身份与路径
+docs/                源码分析与架构设计
 ```
 
 ## 重要说明
@@ -133,10 +164,8 @@ cargo test --workspace
 - 费用是估算值，不是供应商实际账单。
 - 会话日志无法可靠识别供应商时，不会猜测归属。
 - 默认只同步用量元数据，不同步 prompt、response、API Key 或文件路径。
-- 历史日汇总如果没有稳定请求 ID，无法精确跨设备去重。
+- 价格统计实时计算；入库费用仅作为审计快照。
 
-## 致谢与许可
+## 许可
 
-Token Mirror 的 Token 语义、费用计算和部分采集算法参考并提取自 [CC Switch](https://github.com/farion1231/cc-switch)。CC Switch 使用 MIT License，Copyright (c) 2025 Jason Young。详见 `NOTICE`。
-
-Token Mirror 本身同样使用 MIT License。
+MIT。Token 语义、费用计算和部分采集算法参考 CC Switch，详见 `NOTICE`。

@@ -4,9 +4,17 @@ import (
 	"fmt"
 	"time"
 
-	"token-mirror/internal/model"
-	"token-mirror/internal/pricing"
+	"tokenanalyse/internal/model"
+	"tokenanalyse/internal/pricing"
 )
+
+type PricingSyncStatus struct {
+	LastUpdatedAt *time.Time `json:"lastUpdatedAt,omitempty"`
+	LastCheckedAt *time.Time `json:"lastCheckedAt,omitempty"`
+	LastSyncedAt  *time.Time `json:"lastSyncedAt,omitempty"`
+	RemoteHash    string     `json:"remoteHash,omitempty"`
+	LastError     string     `json:"lastError,omitempty"`
+}
 
 type PricingSnapshot struct {
 	VersionID   string               `json:"versionId"`
@@ -15,6 +23,7 @@ type PricingSnapshot struct {
 	Models      []model.ModelPricing `json:"models"`
 	Aliases     []model.ModelAlias   `json:"aliases"`
 	ContentHash string               `json:"contentHash"`
+	Sync        PricingSyncStatus    `json:"sync"`
 }
 
 func (db *DB) ApplyPricingSnapshot(snapshot PricingSnapshot, activate bool) error {
@@ -58,8 +67,41 @@ func (db *DB) ApplyPricingSnapshot(snapshot PricingSnapshot, activate bool) erro
 		if _, err := tx.Exec(`UPDATE settings SET value=? WHERE key='active_pricing_version'`, snapshot.VersionID); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(`INSERT INTO settings(key,value) VALUES('pricing_last_updated_at',?)
+			ON CONFLICT(key) DO UPDATE SET value=excluded.value`, formatTime(snapshot.CreatedAt)); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
+}
+
+func (db *DB) PricingSyncStatus() (PricingSyncStatus, error) {
+	status := PricingSyncStatus{}
+	if value, _ := db.GetSetting("pricing_last_updated_at"); value != "" {
+		parsed, _ := parseTime(value)
+		status.LastUpdatedAt = &parsed
+	}
+	if value, _ := db.GetSetting("pricing_last_checked_at"); value != "" {
+		parsed, _ := parseTime(value)
+		status.LastCheckedAt = &parsed
+	}
+	if value, _ := db.GetSetting("pricing_last_synced_at"); value != "" {
+		parsed, _ := parseTime(value)
+		status.LastSyncedAt = &parsed
+	}
+	status.RemoteHash, _ = db.GetSetting("pricing_remote_hash")
+	status.LastError, _ = db.GetSetting("pricing_last_error")
+	return status, nil
+}
+
+func (db *DB) MarkPricingSync(remoteHash string, checkedAt, syncedAt time.Time, syncError string) error {
+	_ = db.SetSetting("pricing_last_checked_at", formatTime(checkedAt))
+	_ = db.SetSetting("pricing_remote_hash", remoteHash)
+	_ = db.SetSetting("pricing_last_error", syncError)
+	if !syncedAt.IsZero() {
+		_ = db.SetSetting("pricing_last_synced_at", formatTime(syncedAt))
+	}
+	return nil
 }
 
 func (db *DB) ActivePricingSnapshot() (PricingSnapshot, error) {
@@ -82,8 +124,10 @@ func (db *DB) ActivePricingSnapshot() (PricingSnapshot, error) {
 	if err != nil {
 		return PricingSnapshot{}, err
 	}
+	syncStatus, _ := db.PricingSyncStatus()
 	return PricingSnapshot{VersionID: version.VersionID, Source: version.Source,
-		CreatedAt: version.CreatedAt, Models: models, Aliases: aliases, ContentHash: version.ContentHash}, nil
+		CreatedAt: version.CreatedAt, Models: models, Aliases: aliases, ContentHash: version.ContentHash,
+		Sync: syncStatus}, nil
 }
 
 func (db *DB) MergePricingSnapshot(remote PricingSnapshot, policy pricing.MergePolicy) (PricingSnapshot, int, error) {

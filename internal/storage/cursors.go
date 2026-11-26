@@ -1,7 +1,7 @@
 package storage
 
 import (
-	"token-mirror/internal/collectors"
+	"tokenanalyse/internal/collectors"
 )
 
 func (db *DB) SaveCursors(cursors []collectors.Cursor) error {
