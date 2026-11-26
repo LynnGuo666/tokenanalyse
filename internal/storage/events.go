@@ -164,7 +164,10 @@ func (db *DB) InsertEvents(events []model.UsageEvent, enqueue bool) (InsertResul
 		result.Inserted++
 
 		if enqueue {
-			payload, err := json.Marshal(event)
+			syncEvent := event
+			syncEvent.Cost = model.CostSnapshot{}
+			syncEvent.PricingVersion = ""
+			payload, err := json.Marshal(syncEvent)
 			if err != nil {
 				return result, err
 			}
