@@ -5,6 +5,7 @@ const state = {
   app: "",
   provider: "",
   model: "",
+  session: "",
   page: 1,
   pageSize: 50,
   trendMetric: "tokens",
@@ -43,6 +44,7 @@ function filters() {
   if (state.app) params.set("appType", state.app);
   if (state.provider) params.set("providerId", state.provider);
   if (state.model) params.set("model", state.model);
+  if (state.session) params.set("sessionId", state.session);
   return params;
 }
 
@@ -234,7 +236,7 @@ async function loadDeviceView() {
 async function loadSessions() {
   const result = await api("/sessions", filters());
   const items = result.items || [];
-  const rows = items.map((item) => `<tr>
+  const rows = items.map((item) => `<tr data-session="${escapeHtml(item.sessionId || "")}" style="cursor:pointer">
     <td>${escapeHtml(item.deviceName || item.deviceId || "")}</td>
     <td><span class="tag">${escapeHtml(item.sourceApp || "")}</span></td>
     <td class="mono">${escapeHtml(item.sessionId || "")}</td>
@@ -245,6 +247,11 @@ async function loadSessions() {
     <td>${new Date(item.lastRequestAt).toLocaleString()}</td>
   </tr>`).join("");
   $("#session-table").innerHTML = `<thead><tr><th>设备</th><th>应用</th><th>会话 ID</th><th class="numeric">请求</th><th class="numeric">Tokens</th><th class="numeric">费用</th><th>首次请求</th><th>最后请求</th></tr></thead><tbody>${rows || `<tr><td colspan="8" class="muted">暂无会话</td></tr>`}</tbody>`;
+  $$("#session-table tbody tr[data-session]").forEach((row) => row.addEventListener("click", () => {
+    state.session = row.dataset.session;
+    state.page = 1;
+    switchView("requests");
+  }));
 }
 
 async function loadPricing() {

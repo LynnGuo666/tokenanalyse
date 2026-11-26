@@ -169,6 +169,14 @@ func (r *Runner) runWebDAV(ctx context.Context) (Report, error) {
 		report.Uploaded++
 	}
 
+	ownPricing, _ := r.db.ActivePricingSnapshot()
+	if ownPricing.ContentHash != "" {
+		ownDeviceURL := client.DeviceURL(root, profile, r.deviceID)
+		_ = client.EnsureDir(ctx, ownDeviceURL)
+		payload, _ := json.Marshal(ownPricing)
+		_ = client.Put(ctx, ownDeviceURL+"pricing.json", payload, "application/json")
+	}
+
 	deviceNames, err := client.ListChildren(ctx, devicesURL)
 	if err != nil {
 		report.Errors = append(report.Errors, err.Error())
@@ -178,7 +186,21 @@ func (r *Runner) runWebDAV(ctx context.Context) (Report, error) {
 		if deviceID == r.deviceID || deviceID == "devices" {
 			continue
 		}
-		batchesURL := client.DeviceURL(root, profile, deviceID) + "batches/"
+		deviceURL := client.DeviceURL(root, profile, deviceID)
+		if data, found, err := client.Get(ctx, deviceURL+"pricing.json"); err == nil && found {
+			var remotePricing storage.PricingSnapshot
+			if json.Unmarshal(data, &remotePricing) == nil && remotePricing.ContentHash != "" && remotePricing.ContentHash != ownPricing.ContentHash {
+				_, conflicts, mergeErr := r.db.MergePricingSnapshot(remotePricing, pricing.MergePreferRemote)
+				if mergeErr != nil {
+					report.Errors = append(report.Errors, "merge pricing: "+mergeErr.Error())
+				} else {
+					report.Conflicts += conflicts
+				}
+				ownPricing, _ = r.db.ActivePricingSnapshot()
+			}
+		}
+		_ = r.db.MarkPricingSync(ownPricing.ContentHash, time.Now().UTC(), time.Now().UTC(), "")
+		batchesURL := deviceURL + "batches/"
 		names, err := client.ListChildren(ctx, batchesURL)
 		if err != nil {
 			continue

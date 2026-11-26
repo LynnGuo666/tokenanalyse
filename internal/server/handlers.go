@@ -43,6 +43,7 @@ func parseFilters(r *http.Request) model.UsageFilters {
 		ProviderID:   query.Get("providerId"),
 		ProviderName: query.Get("providerName"),
 		Model:        query.Get("model"),
+		SessionID:    query.Get("sessionId"),
 	}
 }
 

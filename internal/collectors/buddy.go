@@ -120,6 +120,15 @@ func buddyRecordUsage(record map[string]any, onlyEndingEvents bool) (buddyUsage,
 }
 
 func (c *buddyCollector) Collect(ctx Context, cursors []Cursor) (Result, error) {
+	root := c.root(ctx)
+	files, err := findUsageFiles(root)
+	if err != nil {
+		return Result{}, err
+	}
+	return c.collectFiles(ctx, files, cursors), nil
+}
+
+func (c *buddyCollector) root(ctx Context) string {
 	var root string
 	switch c.id {
 	case "codebuddy":
@@ -127,10 +136,10 @@ func (c *buddyCollector) Collect(ctx Context, cursors []Cursor) (Result, error) 
 	case "workbuddy":
 		root = ctx.Paths.WorkBuddy
 	}
-	files, err := findUsageFiles(root)
-	if err != nil {
-		return Result{}, err
-	}
+	return root
+}
+
+func (c *buddyCollector) collectFiles(ctx Context, files []usageFile, cursors []Cursor) Result {
 	indexed := cursorMap(cursors)
 	result := Result{}
 	for _, file := range files {
@@ -162,7 +171,7 @@ func (c *buddyCollector) Collect(ctx Context, cursors []Cursor) (Result, error) 
 		partial.Merge(c.parseRecords(ctx, records, file, next, modified))
 		result.Merge(partial)
 	}
-	return result, nil
+	return result
 }
 
 func (c *buddyCollector) parseRecords(ctx Context, records []map[string]any, file usageFile, next int64, modified int64) Result {

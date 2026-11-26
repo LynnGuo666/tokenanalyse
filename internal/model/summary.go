@@ -53,4 +53,5 @@ type UsageFilters struct {
 	ProviderID   string
 	ProviderName string
 	Model        string
+	SessionID    string
 }

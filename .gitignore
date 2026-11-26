@@ -1,6 +1,8 @@
 # Binaries
 /bin/
 /dist/
+/tokenanalyse
+/tokenanalyse-ui
 *.exe
 *.test
 *.out

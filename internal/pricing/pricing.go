@@ -64,8 +64,20 @@ func ParseModelsDev(body []byte) (*Snapshot, error) {
 	models := []model.ModelPricing{}
 	aliases := []model.ModelAlias{}
 	seen := map[string]bool{}
-	for providerID, provider := range providers {
-		for rawID, entry := range provider.Models {
+	providerIDs := make([]string, 0, len(providers))
+	for providerID := range providers {
+		providerIDs = append(providerIDs, providerID)
+	}
+	sort.Strings(providerIDs)
+	for _, providerID := range providerIDs {
+		provider := providers[providerID]
+		modelIDs := make([]string, 0, len(provider.Models))
+		for modelID := range provider.Models {
+			modelIDs = append(modelIDs, modelID)
+		}
+		sort.Strings(modelIDs)
+		for _, rawID := range modelIDs {
+			entry := provider.Models[rawID]
 			modelID := entry.ID
 			if modelID == "" {
 				modelID = rawID
@@ -89,11 +101,10 @@ func ParseModelsDev(body []byte) (*Snapshot, error) {
 			if canonical == "" {
 				canonical = model.NormalizeModelID(modelID)
 			}
-			key := canonical + "\x00" + providerID
-			if seen[key] {
+			if seen[canonical] {
 				continue
 			}
-			seen[key] = true
+			seen[canonical] = true
 			models = append(models, model.ModelPricing{
 				ModelID: canonical, DisplayName: displayName,
 				InputCostPerMillion: input, OutputCostPerMillion: output,

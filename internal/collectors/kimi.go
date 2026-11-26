@@ -26,7 +26,6 @@ type kimiUsageKey struct {
 
 type kimiRequestInfo struct {
 	model         string
-	hasModel      bool
 	requestMS     int64
 	latencyMS     uint64
 	firstTokenMS  *uint64
@@ -38,7 +37,6 @@ type kimiStep struct {
 	uuid          string
 	turnStep      string
 	model         string
-	hasModel      bool
 	requestMS     int64
 	hasRequestMS  bool
 	lastContentMS int64

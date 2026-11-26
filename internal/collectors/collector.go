@@ -1,6 +1,7 @@
 package collectors
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -153,7 +154,9 @@ func (r *Registry) CollectAll(ctx Context, cursors []Cursor) Result {
 	for _, collector := range collectors {
 		partial, err := collector.Collect(ctx, cursors)
 		if err != nil {
-			result.Errors = append(result.Errors, collector.Info().ID+": "+err.Error())
+			if !errors.Is(err, os.ErrNotExist) {
+				result.Errors = append(result.Errors, collector.Info().ID+": "+err.Error())
+			}
 			continue
 		}
 		result.Merge(partial)

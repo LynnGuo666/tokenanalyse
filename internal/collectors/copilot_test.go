@@ -3,7 +3,6 @@ package collectors
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 
 	"tokenanalyse/internal/model"
@@ -38,7 +37,7 @@ func TestCopilotCollectorNormalizesUsageAndResumes(t *testing.T) {
 	if event.InputTokenSemantics != model.SemanticsFresh || event.RequestID != "copilot:session-1:u1" {
 		t.Fatalf("event=%+v", event)
 	}
-	if event.LatencyMS == nil || *event.LatencyMS != 2988 || event.FirstTokenMS == nil || strconv.FormatUint(*event.FirstTokenMS, 10) != "2907" {
+	if event.LatencyMS == nil || *event.LatencyMS != 2988 || event.FirstTokenMS == nil || *event.FirstTokenMS != 2907 {
 		if event.LatencyMS == nil || event.FirstTokenMS == nil {
 			t.Fatalf("timing pointers: latency=%v first=%v", event.LatencyMS, event.FirstTokenMS)
 		}

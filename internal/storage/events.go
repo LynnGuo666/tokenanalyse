@@ -673,6 +673,10 @@ func buildFilters(filters model.UsageFilters) (string, []any) {
 		conditions = append(conditions, "(model = ? OR canonical_model = ? OR model_raw = ?)")
 		args = append(args, filters.Model, filters.Model, filters.Model)
 	}
+	if filters.SessionID != "" {
+		conditions = append(conditions, "session_id = ?")
+		args = append(args, filters.SessionID)
+	}
 	return " WHERE " + strings.Join(conditions, " AND "), args
 }
 

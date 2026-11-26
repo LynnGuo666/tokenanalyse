@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"tokenanalyse/internal/model"
@@ -169,7 +170,10 @@ func (c *CopilotCollector) Collect(ctx Context, cursors []Cursor) (Result, error
 		}
 		cursor := indexed[key]
 		selected := cursor.State
-		if cached, ok := copilotSelectionCache[key]; ok {
+		copilotSelectionMu.RLock()
+		cached, hasCached := copilotSelectionCache[key]
+		copilotSelectionMu.RUnlock()
+		if hasCached {
 			selected = cached
 		}
 		result.Merge(c.collectSession(ctx, path, session.Name(), key, incrementalOffset(cursor, cursorExists(indexed, key), stat.Size()), modified, selected))
@@ -217,7 +221,9 @@ func (c *CopilotCollector) collectSession(ctx Context, path, sessionID, key stri
 		}
 		result.Events = append(result.Events, event)
 	}
+	copilotSelectionMu.Lock()
 	copilotSelectionCache[key] = selected
+	copilotSelectionMu.Unlock()
 	if !incomplete {
 		stat, statErr := os.Stat(path)
 		if statErr == nil {
@@ -229,6 +235,9 @@ func (c *CopilotCollector) collectSession(ctx Context, path, sessionID, key stri
 }
 
 // Selection state is keyed by the same stable file path as the persisted cursor.
-var copilotSelectionCache = map[string]string{}
+var (
+	copilotSelectionMu    sync.RWMutex
+	copilotSelectionCache = map[string]string{}
+)
 
 var _ Collector = (*CopilotCollector)(nil)

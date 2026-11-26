@@ -20,6 +20,10 @@ type usageFile struct {
 	parentSession string
 }
 
+func findUsageFiles(root string) ([]usageFile, error) {
+	return buddyFilesFromRoot(root)
+}
+
 func cursorKey(sourceID, path string) string {
 	return sourceID + ":" + path
 }
@@ -92,7 +96,7 @@ func readJSONLines(path string, offset int64) (events []map[string]any, next int
 	return events, next, read, damaged, incomplete, nil
 }
 
-func findUsageFiles(root string) ([]usageFile, error) {
+func buddyFilesFromRoot(root string) ([]usageFile, error) {
 	projects := filepath.Join(root, "projects")
 	entries, err := os.ReadDir(projects)
 	if os.IsNotExist(err) {
