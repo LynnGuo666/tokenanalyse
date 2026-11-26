@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -40,7 +41,9 @@ func (r *Runner) RunOnce(ctx context.Context) (Report, error) {
 func (r *Runner) runServer(ctx context.Context) (Report, error) {
 	report := Report{}
 	client := NewServerClient(r.config.Server.BaseURL, r.config.Server.Token)
-	_ = r.db.RetryFailedOutbox()
+	if err := r.db.RetryFailedOutbox(); err != nil {
+		return report, err
+	}
 
 	entries, err := r.db.PendingOutbox(1000)
 	if err != nil {
@@ -64,6 +67,9 @@ func (r *Runner) runServer(ctx context.Context) (Report, error) {
 		for _, entry := range groups[deviceID] {
 			event, err := entry.Event()
 			if err != nil {
+				if markErr := r.db.MarkOutboxFailed(entry.OutboxID, err.Error()); markErr != nil {
+					report.Errors = append(report.Errors, markErr.Error())
+				}
 				report.Errors = append(report.Errors, err.Error())
 				continue
 			}
@@ -78,7 +84,9 @@ func (r *Runner) runServer(ctx context.Context) (Report, error) {
 			DeviceID: deviceID, CreatedAt: nowUTC(), Cursor: cursor, Events: events})
 		if err != nil {
 			for _, id := range outboxIDs {
-				_ = r.db.MarkOutboxFailed(id, err.Error())
+				if markErr := r.db.MarkOutboxFailed(id, err.Error()); markErr != nil {
+					report.Errors = append(report.Errors, markErr.Error())
+				}
 			}
 			report.Errors = append(report.Errors, err.Error())
 			continue
@@ -86,47 +94,65 @@ func (r *Runner) runServer(ctx context.Context) (Report, error) {
 		report.Uploaded += ack.Accepted
 		report.Duplicates += ack.Duplicates
 		for _, id := range outboxIDs {
-			_ = r.db.MarkOutboxSent(id)
+			if err := r.db.MarkOutboxSent(id); err != nil {
+				report.Errors = append(report.Errors, err.Error())
+			}
 		}
 	}
 
-	cursor, _ := r.db.GetSetting("upstream_cursor")
+	cursor, err := r.db.GetSetting("upstream_cursor")
+	if err != nil {
+		return report, err
+	}
 	remoteEvents, err := client.FetchEvents(ctx, cursor, 1000)
 	if err != nil {
 		report.Errors = append(report.Errors, "fetch events: "+err.Error())
 	} else {
+		imported := true
 		if len(remoteEvents.Events) > 0 {
 			result, err := r.db.InsertEvents(remoteEvents.Events, false)
 			if err != nil {
+				imported = false
 				report.Errors = append(report.Errors, "import events: "+err.Error())
 			} else {
 				report.Downloaded += result.Inserted
 				report.Duplicates += result.Skipped
 			}
 		}
-		if remoteEvents.NextCursor != "" {
-			_ = r.db.SetSetting("upstream_cursor", remoteEvents.NextCursor)
+		if imported && remoteEvents.NextCursor != "" {
+			if err := r.db.SetSetting("upstream_cursor", remoteEvents.NextCursor); err != nil {
+				report.Errors = append(report.Errors, "save upstream cursor: "+err.Error())
+			}
 		}
 	}
 
 	remotePricing, err := client.FetchPricing(ctx)
 	checkedAt := time.Now().UTC()
 	if err != nil {
-		_ = r.db.MarkPricingSync("", checkedAt, time.Time{}, err.Error())
-		report.Errors = append(report.Errors, "fetch pricing: "+err.Error())
+		remoteHash := r.currentPricingRemoteHash()
+		message := "fetch pricing: " + err.Error()
+		r.markPricingSync(&report, remoteHash, checkedAt, time.Time{}, message)
+		report.Errors = append(report.Errors, message)
+	} else if !hasPricingContent(remotePricing) {
+		r.markPricingSync(&report, r.currentPricingRemoteHash(), checkedAt, time.Time{}, "")
 	} else {
-		localPricing, _ := r.db.ActivePricingSnapshot()
-		if remotePricing.ContentHash != "" && remotePricing.ContentHash != localPricing.ContentHash {
+		remoteHash := pricingSnapshotHash(remotePricing)
+		localPricing, err := r.db.ActivePricingSnapshot()
+		if err != nil {
+			message := "load local pricing: " + err.Error()
+			r.markPricingSync(&report, remoteHash, checkedAt, time.Time{}, message)
+			report.Errors = append(report.Errors, message)
+		} else if pricingSnapshotsDiffer(localPricing, remotePricing) {
 			_, conflicts, mergeErr := r.db.MergePricingSnapshot(remotePricing, pricing.MergePreferRemote)
 			if mergeErr != nil {
-				_ = r.db.MarkPricingSync(remotePricing.ContentHash, checkedAt, time.Time{}, mergeErr.Error())
+				r.markPricingSync(&report, remoteHash, checkedAt, time.Time{}, "merge pricing: "+mergeErr.Error())
 				report.Errors = append(report.Errors, "merge pricing: "+mergeErr.Error())
 			} else {
-				_ = r.db.MarkPricingSync(remotePricing.ContentHash, checkedAt, checkedAt, "")
+				r.markPricingSync(&report, remoteHash, checkedAt, checkedAt, "")
 				report.Conflicts += conflicts
 			}
 		} else {
-			_ = r.db.MarkPricingSync(remotePricing.ContentHash, checkedAt, checkedAt, "")
+			r.markPricingSync(&report, remoteHash, checkedAt, checkedAt, "")
 		}
 	}
 	return report, nil
@@ -140,7 +166,9 @@ func (r *Runner) runWebDAV(ctx context.Context) (Report, error) {
 	if err := client.EnsureDir(ctx, devicesURL); err != nil {
 		return report, err
 	}
-	_ = r.db.RetryFailedOutbox()
+	if err := r.db.RetryFailedOutbox(); err != nil {
+		return report, err
+	}
 	entries, err := r.db.PendingOutbox(1000)
 	if err != nil {
 		return report, err
@@ -161,56 +189,96 @@ func (r *Runner) runWebDAV(ctx context.Context) (Report, error) {
 		}
 		objectURL := batchesURL + fmt.Sprintf("%020d-%s.json", entry.OutboxID, entry.EventID)
 		if err := client.Put(ctx, objectURL, []byte(entry.Payload), "application/json"); err != nil {
-			_ = r.db.MarkOutboxFailed(entry.OutboxID, err.Error())
+			if markErr := r.db.MarkOutboxFailed(entry.OutboxID, err.Error()); markErr != nil {
+				report.Errors = append(report.Errors, markErr.Error())
+			}
 			report.Errors = append(report.Errors, err.Error())
 			continue
 		}
-		_ = r.db.MarkOutboxSent(entry.OutboxID)
+		if err := r.db.MarkOutboxSent(entry.OutboxID); err != nil {
+			report.Errors = append(report.Errors, err.Error())
+			continue
+		}
 		report.Uploaded++
 	}
 
-	ownPricing, _ := r.db.ActivePricingSnapshot()
+	ownPricing, err := r.db.ActivePricingSnapshot()
+	pricingErrors := []string{}
+	if err != nil {
+		pricingErrors = append(pricingErrors, "load local pricing: "+err.Error())
+	}
+	pricingSynced := false
+	remoteHash := ""
+	ownDeviceURL := client.DeviceURL(root, profile, r.deviceID)
 	if ownPricing.ContentHash != "" {
-		ownDeviceURL := client.DeviceURL(root, profile, r.deviceID)
-		_ = client.EnsureDir(ctx, ownDeviceURL)
-		payload, _ := json.Marshal(ownPricing)
-		_ = client.Put(ctx, ownDeviceURL+"pricing.json", payload, "application/json")
+		if err := client.EnsureDir(ctx, ownDeviceURL); err != nil {
+			pricingErrors = append(pricingErrors, err.Error())
+		} else if payload, err := json.Marshal(ownPricing); err != nil {
+			pricingErrors = append(pricingErrors, err.Error())
+		} else if err := client.Put(ctx, ownDeviceURL+"pricing.json", payload, "application/json"); err != nil {
+			pricingErrors = append(pricingErrors, err.Error())
+		} else {
+			pricingSynced = true
+		}
 	}
 
 	deviceNames, err := client.ListChildren(ctx, devicesURL)
 	if err != nil {
-		report.Errors = append(report.Errors, err.Error())
+		pricingErrors = append(pricingErrors, err.Error())
+		r.finishWebDAVPricingSync(&report, remoteHash, pricingSynced, pricingErrors)
 		return report, nil
 	}
+	pricingChanged := false
 	for _, deviceID := range deviceNames {
 		if deviceID == r.deviceID || deviceID == "devices" {
 			continue
 		}
 		deviceURL := client.DeviceURL(root, profile, deviceID)
-		if data, found, err := client.Get(ctx, deviceURL+"pricing.json"); err == nil && found {
+		if data, found, err := client.Get(ctx, deviceURL+"pricing.json"); err != nil {
+			pricingErrors = append(pricingErrors, err.Error())
+		} else if found {
 			var remotePricing storage.PricingSnapshot
-			if json.Unmarshal(data, &remotePricing) == nil && remotePricing.ContentHash != "" && remotePricing.ContentHash != ownPricing.ContentHash {
-				_, conflicts, mergeErr := r.db.MergePricingSnapshot(remotePricing, pricing.MergePreferRemote)
-				if mergeErr != nil {
-					report.Errors = append(report.Errors, "merge pricing: "+mergeErr.Error())
+			if err := json.Unmarshal(data, &remotePricing); err != nil {
+				pricingErrors = append(pricingErrors, err.Error())
+			} else if hasPricingContent(remotePricing) {
+				remoteHash = pricingSnapshotHash(remotePricing)
+				localPricing, err := r.db.ActivePricingSnapshot()
+				if err != nil {
+					pricingErrors = append(pricingErrors, err.Error())
+				} else if pricingSnapshotsDiffer(localPricing, remotePricing) {
+					merged, conflicts, mergeErr := r.db.MergePricingSnapshot(remotePricing, pricing.MergePreferRemote)
+					if mergeErr != nil {
+						pricingErrors = append(pricingErrors, "merge pricing: "+mergeErr.Error())
+					} else {
+						ownPricing = merged
+						if merged.VersionID != localPricing.VersionID {
+							pricingChanged = true
+						}
+						pricingSynced = true
+						report.Conflicts += conflicts
+					}
 				} else {
-					report.Conflicts += conflicts
+					ownPricing = localPricing
+					pricingSynced = true
 				}
-				ownPricing, _ = r.db.ActivePricingSnapshot()
 			}
 		}
-		_ = r.db.MarkPricingSync(ownPricing.ContentHash, time.Now().UTC(), time.Now().UTC(), "")
 		batchesURL := deviceURL + "batches/"
 		names, err := client.ListChildren(ctx, batchesURL)
 		if err != nil {
+			report.Errors = append(report.Errors, err.Error())
 			continue
 		}
 		for _, name := range names {
 			if !strings.HasSuffix(name, ".json") {
 				continue
 			}
-			data, found, err := client.Get(ctx, batchesURL+name)
-			if err != nil || !found {
+			data, found, err := client.Get(ctx, batchesURL+url.PathEscape(name))
+			if err != nil {
+				report.Errors = append(report.Errors, err.Error())
+				continue
+			}
+			if !found {
 				continue
 			}
 			var event model.UsageEvent
@@ -227,5 +295,61 @@ func (r *Runner) runWebDAV(ctx context.Context) (Report, error) {
 			report.Duplicates += result.Skipped
 		}
 	}
+	if pricingChanged && ownPricing.ContentHash != "" {
+		payload, err := json.Marshal(ownPricing)
+		if err != nil {
+			pricingErrors = append(pricingErrors, err.Error())
+		} else if err := client.Put(ctx, ownDeviceURL+"pricing.json", payload, "application/json"); err != nil {
+			pricingErrors = append(pricingErrors, err.Error())
+		}
+	}
+	r.finishWebDAVPricingSync(&report, remoteHash, pricingSynced, pricingErrors)
 	return report, nil
+}
+
+func (r *Runner) finishWebDAVPricingSync(report *Report, remoteHash string, synced bool, errs []string) {
+	for _, err := range errs {
+		if err != "" {
+			report.Errors = append(report.Errors, err)
+		}
+	}
+	checkedAt := time.Now().UTC()
+	if remoteHash == "" {
+		remoteHash = r.currentPricingRemoteHash()
+	}
+	var syncedAt time.Time
+	if synced {
+		syncedAt = checkedAt
+	}
+	r.markPricingSync(report, remoteHash, checkedAt, syncedAt, strings.Join(errs, "; "))
+}
+
+func (r *Runner) currentPricingRemoteHash() string {
+	status, err := r.db.PricingSyncStatus()
+	if err != nil {
+		return ""
+	}
+	return status.RemoteHash
+}
+
+func (r *Runner) markPricingSync(report *Report, remoteHash string, checkedAt, syncedAt time.Time, syncError string) {
+	if err := r.db.MarkPricingSync(remoteHash, checkedAt, syncedAt, syncError); err != nil {
+		report.Errors = append(report.Errors, "save pricing sync metadata: "+err.Error())
+	}
+}
+
+func hasPricingContent(snapshot storage.PricingSnapshot) bool {
+	return snapshot.VersionID != "" || snapshot.ContentHash != "" || len(snapshot.Models) > 0 || len(snapshot.Aliases) > 0
+}
+
+func pricingSnapshotHash(snapshot storage.PricingSnapshot) string {
+	if snapshot.ContentHash != "" {
+		return snapshot.ContentHash
+	}
+	return pricing.HashModels(snapshot.Models)
+}
+
+func pricingSnapshotsDiffer(local, remote storage.PricingSnapshot) bool {
+	return pricing.HashModels(local.Models) != pricing.HashModels(remote.Models) ||
+		pricing.HashAliases(local.Aliases) != pricing.HashAliases(remote.Aliases)
 }

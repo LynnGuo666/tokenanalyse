@@ -7,20 +7,12 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"tokenanalyse/internal/storage"
 )
 
 //go:embed web/*
 var webFiles embed.FS
 
 func WebFS() fs.FS { return webFiles }
-
-type AppState struct {
-	DB      *storage.DB
-	Token   string
-	Version string
-}
 
 func NewRouter(state *AppState) http.Handler {
 	mux := http.NewServeMux()
@@ -37,12 +29,23 @@ func NewRouter(state *AppState) http.Handler {
 	mux.HandleFunc("POST /api/v1/events/batch", state.handleIngestBatch)
 	mux.HandleFunc("GET /api/v1/pricing", state.handlePricing)
 	mux.HandleFunc("POST /api/v1/pricing/merge", state.handlePricingMerge)
+	mux.HandleFunc("POST /api/v1/pricing/sync-models-dev", state.handleSyncModelsDev)
 	mux.HandleFunc("POST /api/v1/pricing/recalculate", state.handleReprice)
 	mux.HandleFunc("GET /api/v1/aliases", state.handleAliases)
 	mux.HandleFunc("POST /api/v1/aliases", state.handleUpsertAlias)
 	mux.HandleFunc("DELETE /api/v1/aliases/{alias_id}", state.handleDeleteAlias)
 	mux.HandleFunc("GET /api/v1/sessions", state.handleSessions)
 	mux.HandleFunc("GET /api/v1/sessions/{session_id}", state.handleSessionDetail)
+	mux.HandleFunc("GET /api/v1/tasks", state.handleTasks)
+	mux.HandleFunc("POST /api/v1/tasks/collect", state.handleCollectTask)
+	mux.HandleFunc("POST /api/v1/tasks/reprice", state.handleRepriceTask)
+	mux.HandleFunc("POST /api/v1/tasks/models-dev", state.handleModelsDevTask)
+	mux.HandleFunc("POST /api/v1/tasks/import-cc-switch", state.handleImportCCSwitchTask)
+	mux.HandleFunc("POST /api/v1/tasks/sync", state.handleSyncTask)
+	mux.HandleFunc("POST /api/v1/tasks/pricing-import", state.handlePricingImportTask)
+	mux.HandleFunc("POST /api/v1/tasks/pricing-merge", state.handlePricingMergeTask)
+	mux.HandleFunc("POST /api/v1/tasks/aliases/upsert", state.handleAliasUpsertTask)
+	mux.HandleFunc("POST /api/v1/tasks/aliases/delete", state.handleAliasDeleteTask)
 
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(webFiles))))
 	mux.HandleFunc("GET /", state.handleIndex)

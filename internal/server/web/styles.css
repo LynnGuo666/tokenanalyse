@@ -138,6 +138,27 @@ td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; 
 .alias-form { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .alias-form input, .alias-form select { flex: 1; min-width: 180px; border: 1px solid var(--border); background: #0d1016; color: var(--text); border-radius: 9px; padding: 8px 11px; outline: none; }
 .alias-form input:focus, .alias-form select:focus { border-color: var(--accent); }
+.task-count {
+  display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 999px; background: rgba(124,156,255,.18); color: var(--accent); font-size: 11px;
+}
+.task-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 40; }
+.task-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 92vw); z-index: 41;
+  background: #0f1219; border-left: 1px solid var(--border); box-shadow: -20px 0 60px rgba(0,0,0,.35);
+  display: flex; flex-direction: column;
+}
+.task-drawer-head { padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; gap: 12px; }
+.task-drawer-head h2 { margin: 0; font-size: 17px; }
+.task-drawer-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.task-list { padding: 14px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.task-item { border: 1px solid var(--border); border-radius: 12px; padding: 13px; background: var(--panel); }
+.task-item-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.task-title { font-weight: 600; }
+.task-meta { color: var(--muted); font-size: 11px; margin-top: 3px; }
+.task-progress { height: 5px; background: #202635; border-radius: 999px; overflow: hidden; margin-top: 10px; }
+.task-progress > span { display: block; height: 100%; background: linear-gradient(90deg,var(--accent),var(--accent-2)); transition: width .25s ease; }
+.task-error { color: var(--danger); font-size: 12px; margin-top: 8px; word-break: break-word; }
 .toast {
   position: fixed; right: 22px; bottom: 22px; z-index: 50;
   background: #202635; border: 1px solid #343d51; color: var(--text);

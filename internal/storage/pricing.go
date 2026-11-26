@@ -46,13 +46,8 @@ func (db *DB) CreatePricingVersion(versionID, source string, models []model.Mode
 }
 
 func (db *DB) SetActivePricingVersion(versionID string) error {
-	result, err := db.conn.Exec(`UPDATE settings SET value=? WHERE key='active_pricing_version'`, versionID)
-	if err != nil {
-		return err
-	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
-		_, err = db.conn.Exec(`INSERT INTO settings(key, value) VALUES ('active_pricing_version', ?)`, versionID)
-	}
+	_, err := db.conn.Exec(`INSERT INTO settings(key, value) VALUES ('active_pricing_version', ?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, versionID)
 	return err
 }
 
@@ -174,6 +169,7 @@ func (db *DB) SetCNYExchangeRate(value string) error {
 	if err != nil || rate.LessThanOrEqual(decimal.Zero) {
 		return fmt.Errorf("invalid CNY exchange rate: %s", value)
 	}
-	_, err = db.conn.Exec(`UPDATE settings SET value=? WHERE key='cny_exchange_rate'`, rate.String())
+	_, err = db.conn.Exec(`INSERT INTO settings(key, value) VALUES ('cny_exchange_rate', ?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, rate.String())
 	return err
 }

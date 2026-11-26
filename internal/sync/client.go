@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -71,7 +72,7 @@ func (c *ServerClient) Heartbeat(ctx context.Context, heartbeat model.DeviceHear
 
 func (c *ServerClient) FetchEvents(ctx context.Context, cursor string, limit int) (EventsResponse, error) {
 	var result EventsResponse
-	path := fmt.Sprintf("/api/v1/events?cursor=%s&limit=%d", cursor, limit)
+	path := fmt.Sprintf("/api/v1/events?cursor=%s&limit=%d", url.QueryEscape(cursor), limit)
 	err := c.request(ctx, http.MethodGet, path, nil, &result)
 	return result, err
 }

@@ -17,7 +17,7 @@ TokenAnalyse 内置以下采集器。所有采集器都输出统一的 `UsageEve
 | CodeBuddy | `codebuddy` | `~/.codebuddy` / `CODEBUDDY_HOME` | `projects/**/*.jsonl` 与 subagents |
 | WorkBuddy | `workbuddy` | `~/.workbuddy` / `WORKBUDDY_HOME` | `projects/**/*.jsonl` 与 subagents |
 | DeepSeek Harness | `dsh` | `~/.deepseek` / `DSH_HOME` | `session.v4.jsonl` / 多帧 `.zstd` |
-| MCode | `mcode` | `~/.mcode` / `MCODE_HOME` | 只读 SQLite committed usage projection |
+| MCode / MiniMax Code | `mcode` | `~/.mcode`、`~/.minimax` / `MCODE_HOME`、`MINIMAX_DATA_DIR` | 只读 SQLite committed usage projection |
 | Antigravity | `agy` | `~/.agy` / `AGY_HOME` | transcript + conversations SQLite 元数据 |
 
 ## 其他来源

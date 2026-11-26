@@ -12,6 +12,8 @@ const state = {
   devices: [],
   providers: [],
   models: [],
+  tasks: [],
+  taskDrawerOpen: false,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -283,6 +285,57 @@ async function loadAliases() {
   </tr>`).join("") || `<tr><td colspan="5" class="muted">暂无别名</td></tr>`}</tbody>`;
 }
 
+async function loadTasks() {
+  try {
+    const result = await api("/tasks");
+    state.tasks = result.items || [];
+    $("#task-count").textContent = String(result.activeCount || 0);
+    renderTasks();
+  } catch (error) {
+    // Task center should never block the dashboard.
+  }
+}
+
+function renderTasks() {
+  const statusText = { running: "运行中", completed: "已完成", failed: "失败" };
+  const modeText = { foreground: "前台", background: "后台" };
+  $("#task-list").innerHTML = state.tasks.map((task) => `<div class="task-item">
+    <div class="task-item-head">
+      <div><div class="task-title">${escapeHtml(task.title)}</div><div class="task-meta">${modeText[task.mode] || task.mode} · ${statusText[task.status] || task.status} · ${new Date(task.createdAt).toLocaleString()}</div></div>
+      <span class="tag ${task.status === "completed" ? "ok" : task.status === "failed" ? "bad" : "warn"}">${statusText[task.status] || task.status}</span>
+    </div>
+    <div class="task-progress"><span style="width:${task.status === "running" && !task.progress ? 35 : task.progress || 0}%"></span></div>
+    ${task.message ? `<div class="task-meta">${escapeHtml(task.message)}</div>` : ""}
+    ${task.error ? `<div class="task-error">${escapeHtml(task.error)}</div>` : ""}
+  </div>`).join("") || `<div class="muted" style="padding:20px;text-align:center">暂无任务</div>`;
+}
+
+async function startTask(path, payload = {}) {
+  const response = await fetch(`/api/v1/tasks/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) { toast("任务启动失败"); return; }
+  const task = await response.json();
+  toast(`已启动：${task.title}`);
+  openTaskDrawer();
+  await loadTasks();
+}
+
+function openTaskDrawer() {
+  state.taskDrawerOpen = true;
+  $("#task-drawer").classList.remove("hidden");
+  $("#task-overlay").classList.remove("hidden");
+  loadTasks();
+}
+
+function closeTaskDrawer() {
+  state.taskDrawerOpen = false;
+  $("#task-drawer").classList.add("hidden");
+  $("#task-overlay").classList.add("hidden");
+}
+
 async function refresh() {
   $("#refresh-btn").disabled = true;
   try {
@@ -308,6 +361,10 @@ function switchView(view) {
 
 $$(".nav-item").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
 $("#refresh-btn").addEventListener("click", refresh);
+$("#collect-btn").addEventListener("click", () => startTask("collect"));
+$("#task-center-btn").addEventListener("click", openTaskDrawer);
+$("#task-close").addEventListener("click", closeTaskDrawer);
+$("#task-overlay").addEventListener("click", closeTaskDrawer);
 $("#range-select").addEventListener("change", (event) => { state.range = Number(event.target.value); state.page = 1; refresh(); });
 $("#device-select").addEventListener("change", (event) => { state.device = event.target.value; state.page = 1; refresh(); });
 $("#app-select").addEventListener("change", (event) => { state.app = event.target.value; state.page = 1; refresh(); });
@@ -316,6 +373,8 @@ $("#model-select").addEventListener("change", (event) => { state.model = event.t
 $("#prev-page").addEventListener("click", () => { if (state.page > 1) { state.page -= 1; loadRequests(); } });
 $("#next-page").addEventListener("click", () => { state.page += 1; loadRequests(); });
 $("#reload-pricing").addEventListener("click", loadPricing);
+$("#sync-models-dev").addEventListener("click", () => startTask("models-dev"));
+$("#recalculate-pricing").addEventListener("click", () => startTask("reprice"));
 $("#alias-add").addEventListener("click", async () => {
   const payload = {
     aliasPattern: $("#alias-pattern").value.trim(),
@@ -325,8 +384,7 @@ $("#alias-add").addEventListener("click", async () => {
     priority: 100,
   };
   if (!payload.aliasPattern || !payload.canonicalModelId) { toast("请填写别名和标准模型 ID"); return; }
-  const response = await fetch("/api/v1/aliases", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  if (!response.ok) { toast("添加失败"); return; }
+  await startTask("aliases/upsert", payload);
   $("#alias-pattern").value = "";
   $("#alias-canonical").value = "";
   await loadAliases();
@@ -348,4 +406,6 @@ $$("#trend-metric button").forEach((button) => button.addEventListener("click", 
   await loadDevices();
   await loadFilters();
   await refresh();
+  await loadTasks();
+  setInterval(loadTasks, 2500);
 })();

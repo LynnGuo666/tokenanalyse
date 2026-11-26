@@ -8,6 +8,65 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+func TestMergeKeepBothUsesUniqueModelIDs(t *testing.T) {
+	local := []model.ModelPricing{{
+		ModelID: "model", DisplayName: "Local", InputCostPerMillion: decimal.NewFromInt(1),
+		OutputCostPerMillion: decimal.Zero, CacheReadCostPerMillion: decimal.Zero,
+		CacheCreationCostPerMillion: decimal.Zero, Currency: model.CurrencyUSD, Source: "local",
+	}}
+	remote := []model.ModelPricing{{
+		ModelID: "model", DisplayName: "Remote", InputCostPerMillion: decimal.NewFromInt(2),
+		OutputCostPerMillion: decimal.Zero, CacheReadCostPerMillion: decimal.Zero,
+		CacheCreationCostPerMillion: decimal.Zero, Currency: model.CurrencyUSD, Source: "remote",
+	}}
+	merged, conflicts := MergeModels(local, remote, MergeKeepBoth)
+	if conflicts != 1 || len(merged) != 2 {
+		t.Fatalf("unexpected keep-both merge: conflicts=%d models=%+v", conflicts, merged)
+	}
+	if merged[0].ModelID == merged[1].ModelID {
+		t.Fatalf("keep-both produced duplicate model ids: %+v", merged)
+	}
+	again, _ := MergeModels(merged, remote, MergeKeepBoth)
+	if len(again) != 2 {
+		t.Fatalf("keep-both merge is not idempotent: %+v", again)
+	}
+}
+
+func TestMergeAliasesHonorsPolicyAndDeduplicates(t *testing.T) {
+	local := []model.ModelAlias{{AliasPattern: "vendor/model", CanonicalModelID: "local", MatchType: "exact", Priority: 100}}
+	remote := []model.ModelAlias{
+		{AliasPattern: "vendor/model", CanonicalModelID: "remote", MatchType: "exact", Priority: 100},
+		{AliasPattern: "vendor/model", CanonicalModelID: "remote", MatchType: "exact", Priority: 100},
+		{AliasPattern: "vendor/other", CanonicalModelID: "other", MatchType: "prefix", Priority: 10},
+	}
+	merged := MergeAliases(local, remote, MergePreferRemote)
+	if len(merged) != 2 {
+		t.Fatalf("expected two unique aliases, got %+v", merged)
+	}
+	if merged[0].CanonicalModelID != "remote" {
+		t.Fatalf("remote alias did not win: %+v", merged)
+	}
+	if HashAliases(merged) != HashAliases(append([]model.ModelAlias(nil), merged...)) {
+		t.Fatal("alias hash is not stable")
+	}
+}
+
+func TestLoadCustomIncludesAliases(t *testing.T) {
+	snapshot, err := LoadCustom([]byte(`{
+		"models": [{"modelId":"model","inputCostPerMillion":"1"}],
+		"aliases": [{"aliasPattern":"vendor/model","canonicalModelId":"model","matchType":"exact","priority":100}]
+	}`), "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Aliases) != 1 || snapshot.Aliases[0].CanonicalModelID != "model" {
+		t.Fatalf("custom aliases were not loaded: %+v", snapshot.Aliases)
+	}
+	if _, err := LoadCustom([]byte(`[{"modelId":"model","inputCostPerMillion":"not-a-number"}]`), "custom"); err != nil {
+		t.Fatalf("invalid decimal should be handled without panic: %v", err)
+	}
+}
+
 func TestParseModelsDevAndMerge(t *testing.T) {
 	body := []byte(`{
 		"provider-a": {

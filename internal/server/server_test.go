@@ -15,6 +15,47 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+func TestTaskCenterAPI(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	state := &AppState{DB: db, Version: "test"}
+	httpServer := httptest.NewServer(NewRouter(state))
+	defer httpServer.Close()
+
+	snapshot := storage.PricingSnapshot{VersionID: "v1", Source: "test", CreatedAt: time.Now().UTC(), ContentHash: "hash"}
+	payload, _ := json.Marshal(snapshot)
+	response, err := http.Post(httpServer.URL+"/api/v1/tasks/pricing-import", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("foreground task status: %d", response.StatusCode)
+	}
+	response.Body.Close()
+
+	response, err = http.Get(httpServer.URL + "/api/v1/tasks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var result struct {
+		Items       []map[string]any `json:"items"`
+		ActiveCount int              `json:"activeCount"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(result.Items))
+	}
+	if result.Items[0]["status"] != "completed" {
+		t.Fatalf("unexpected task: %+v", result.Items[0])
+	}
+}
+
 func TestAPIIngestSummaryAndDuplicate(t *testing.T) {
 	db, err := storage.Open(":memory:")
 	if err != nil {

@@ -134,6 +134,7 @@ func LoadCustom(body []byte, source string) (*Snapshot, error) {
 		return nil, err
 	}
 	var entries []model.ModelPricing
+	var aliases []model.ModelAlias
 	switch typed := payload.(type) {
 	case []any:
 		for _, item := range typed {
@@ -155,12 +156,33 @@ func LoadCustom(body []byte, source string) (*Snapshot, error) {
 		} else {
 			return nil, fmt.Errorf("custom pricing JSON must be an array or contain a models array")
 		}
+		if rawAliases, ok := typed["aliases"].([]any); ok {
+			encoded, err := json.Marshal(rawAliases)
+			if err != nil {
+				return nil, err
+			}
+			if err := json.Unmarshal(encoded, &aliases); err != nil {
+				return nil, fmt.Errorf("parse custom pricing aliases: %w", err)
+			}
+			for i := range aliases {
+				if aliases[i].AliasPattern == "" || aliases[i].CanonicalModelID == "" {
+					return nil, fmt.Errorf("custom pricing alias requires aliasPattern and canonicalModelId")
+				}
+				if aliases[i].MatchType == "" {
+					aliases[i].MatchType = "exact"
+				}
+			}
+		}
 	default:
 		return nil, fmt.Errorf("unsupported custom pricing JSON")
 	}
 	hash := HashModels(entries)
-	return &Snapshot{VersionID: source + "-" + hash[:12], Source: source,
-		CreatedAt: time.Now().UTC(), Models: entries, ContentHash: hash}, nil
+	versionID := source + "-" + hash[:12]
+	if aliasHash := HashAliases(aliases); aliasHash != HashAliases(nil) {
+		versionID += "-" + aliasHash[:8]
+	}
+	return &Snapshot{VersionID: versionID, Source: source,
+		CreatedAt: time.Now().UTC(), Models: entries, Aliases: aliases, ContentHash: hash}, nil
 }
 
 func parseCustomEntry(value any) (model.ModelPricing, error) {
@@ -210,12 +232,26 @@ const (
 
 func MergeModels(local, remote []model.ModelPricing, policy MergePolicy) ([]model.ModelPricing, int) {
 	localMap := map[string]model.ModelPricing{}
+	result := make([]model.ModelPricing, 0, len(local)+len(remote))
 	for _, entry := range local {
+		if entry.ModelID == "" {
+			continue
+		}
 		localMap[entry.ModelID] = entry
 	}
-	result := append([]model.ModelPricing(nil), local...)
+	seen := map[string]bool{}
+	for _, entry := range local {
+		if entry.ModelID == "" || seen[entry.ModelID] {
+			continue
+		}
+		seen[entry.ModelID] = true
+		result = append(result, localMap[entry.ModelID])
+	}
 	conflicts := 0
 	for _, remoteEntry := range remote {
+		if remoteEntry.ModelID == "" {
+			continue
+		}
 		localEntry, exists := localMap[remoteEntry.ModelID]
 		if !exists {
 			result = append(result, remoteEntry)
@@ -235,7 +271,23 @@ func MergeModels(local, remote []model.ModelPricing, policy MergePolicy) ([]mode
 			}
 			localMap[remoteEntry.ModelID] = remoteEntry
 		case MergeKeepBoth:
+			// model_pricing has a (version_id, model_id) primary key. Keep the
+			// remote conflicting price under a deterministic namespaced ID so the
+			// merged snapshot remains representable and idempotent.
+			remoteEntry.ModelID = keepBothModelID(remoteEntry)
+			if existing, ok := localMap[remoteEntry.ModelID]; ok {
+				if pricingEqual(existing, remoteEntry) {
+					continue
+				}
+				for {
+					remoteEntry.ModelID += "-remote"
+					if _, exists := localMap[remoteEntry.ModelID]; !exists {
+						break
+					}
+				}
+			}
 			result = append(result, remoteEntry)
+			localMap[remoteEntry.ModelID] = remoteEntry
 		case MergePreferLocal:
 			// keep local
 		default:
@@ -252,6 +304,66 @@ func MergeModels(local, remote []model.ModelPricing, policy MergePolicy) ([]mode
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ModelID < result[j].ModelID })
 	return result, conflicts
+}
+
+func keepBothModelID(entry model.ModelPricing) string {
+	return entry.ModelID + "@" + HashModels([]model.ModelPricing{entry})[:8]
+}
+
+// MergeAliases merges alias rules using the same conflict policy as model
+// prices. Alias identity matches the database unique key.
+func MergeAliases(local, remote []model.ModelAlias, policy MergePolicy) []model.ModelAlias {
+	type aliasKey struct {
+		pattern, matchType, scope string
+	}
+	keyFor := func(alias model.ModelAlias) aliasKey {
+		return aliasKey{alias.AliasPattern, alias.MatchType, alias.ScopeApp}
+	}
+	result := make([]model.ModelAlias, 0, len(local)+len(remote))
+	index := map[aliasKey]int{}
+	for _, alias := range local {
+		if alias.MatchType == "" {
+			alias.MatchType = "exact"
+		}
+		key := keyFor(alias)
+		if _, exists := index[key]; exists {
+			continue
+		}
+		index[key] = len(result)
+		result = append(result, alias)
+	}
+	for _, alias := range remote {
+		if alias.MatchType == "" {
+			alias.MatchType = "exact"
+		}
+		key := keyFor(alias)
+		if i, exists := index[key]; exists {
+			if policy == MergePreferRemote || (policy != MergePreferLocal && policy != MergeKeepBoth && !aliasesEqual(result[i], alias)) {
+				result[i] = alias
+			}
+			continue
+		}
+		index[key] = len(result)
+		result = append(result, alias)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Priority != result[j].Priority {
+			return result[i].Priority > result[j].Priority
+		}
+		if result[i].AliasPattern != result[j].AliasPattern {
+			return result[i].AliasPattern < result[j].AliasPattern
+		}
+		if result[i].MatchType != result[j].MatchType {
+			return result[i].MatchType < result[j].MatchType
+		}
+		return result[i].ScopeApp < result[j].ScopeApp
+	})
+	return result
+}
+
+func aliasesEqual(a, b model.ModelAlias) bool {
+	return a.AliasPattern == b.AliasPattern && a.CanonicalModelID == b.CanonicalModelID &&
+		a.MatchType == b.MatchType && a.ScopeApp == b.ScopeApp && a.Priority == b.Priority
 }
 
 func HashModels(models []model.ModelPricing) string {
@@ -282,21 +394,67 @@ func pricingEqual(a, b model.ModelPricing) bool {
 		a.CacheCreationCostPerMillion.Equal(b.CacheCreationCostPerMillion) && a.Currency == b.Currency
 }
 
+// HashAliases returns a stable content hash for alias configuration. IDs and
+// creation timestamps are deliberately excluded because they are local
+// bookkeeping rather than alias semantics.
+func HashAliases(aliases []model.ModelAlias) string {
+	sorted := append([]model.ModelAlias(nil), aliases...)
+	for i := range sorted {
+		if sorted[i].MatchType == "" {
+			sorted[i].MatchType = "exact"
+		}
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].AliasPattern != sorted[j].AliasPattern {
+			return sorted[i].AliasPattern < sorted[j].AliasPattern
+		}
+		if sorted[i].MatchType != sorted[j].MatchType {
+			return sorted[i].MatchType < sorted[j].MatchType
+		}
+		if sorted[i].ScopeApp != sorted[j].ScopeApp {
+			return sorted[i].ScopeApp < sorted[j].ScopeApp
+		}
+		if sorted[i].CanonicalModelID != sorted[j].CanonicalModelID {
+			return sorted[i].CanonicalModelID < sorted[j].CanonicalModelID
+		}
+		return sorted[i].Priority < sorted[j].Priority
+	})
+	hash := sha256.New()
+	for _, alias := range sorted {
+		hash.Write([]byte(alias.AliasPattern))
+		hash.Write([]byte{0})
+		hash.Write([]byte(alias.CanonicalModelID))
+		hash.Write([]byte{0})
+		hash.Write([]byte(alias.MatchType))
+		hash.Write([]byte{0})
+		hash.Write([]byte(alias.ScopeApp))
+		hash.Write([]byte{0})
+		hash.Write([]byte(fmt.Sprintf("%d", alias.Priority)))
+		hash.Write([]byte{0})
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
 func decimalFrom(value any) decimal.Decimal {
 	switch typed := value.(type) {
 	case float64:
 		return decimal.NewFromFloat(typed)
 	case string:
-		return decimal.RequireFromString(typed)
+		parsed, err := decimal.NewFromString(strings.TrimSpace(typed))
+		if err == nil {
+			return parsed
+		}
 	case json.Number:
-		return decimal.RequireFromString(typed.String())
+		parsed, err := decimal.NewFromString(typed.String())
+		if err == nil {
+			return parsed
+		}
 	case int:
 		return decimal.NewFromInt(int64(typed))
 	case int64:
 		return decimal.NewFromInt(typed)
-	default:
-		return decimal.Zero
 	}
+	return decimal.Zero
 }
 
 func stringValue(value any) string {

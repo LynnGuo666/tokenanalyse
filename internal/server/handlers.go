@@ -214,13 +214,14 @@ func (s *AppState) handlePricingMerge(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"snapshot": merged, "conflicts": conflicts})
 }
 
+func (s *AppState) handleSyncModelsDev(w http.ResponseWriter, r *http.Request) {
+	started, err := s.TaskManager().StartModelsDev()
+	writeTaskResult(w, started, err)
+}
+
 func (s *AppState) handleReprice(w http.ResponseWriter, r *http.Request) {
-	count, err := s.DB.RepriceAll()
-	if err != nil {
-		writeError(w, 500, "storage_error", err.Error())
-		return
-	}
-	writeJSON(w, 200, map[string]any{"repriced": count})
+	started, err := s.TaskManager().StartReprice()
+	writeTaskResult(w, started, err)
 }
 
 func (s *AppState) handleAliases(w http.ResponseWriter, r *http.Request) {

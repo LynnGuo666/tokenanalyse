@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"fmt"
@@ -55,7 +56,7 @@ func (c *WebDAVClient) EnsureDir(ctx context.Context, dirURL string) error {
 }
 
 func (c *WebDAVClient) Put(ctx context.Context, objectURL string, data []byte, contentType string) error {
-	response, err := c.do(ctx, http.MethodPut, objectURL, strings.NewReader(string(data)), contentType)
+	response, err := c.do(ctx, http.MethodPut, objectURL, bytes.NewReader(data), contentType)
 	if err != nil {
 		return err
 	}
@@ -84,7 +85,7 @@ func (c *WebDAVClient) Get(ctx context.Context, objectURL string) ([]byte, bool,
 }
 
 func (c *WebDAVClient) ListChildren(ctx context.Context, dirURL string) ([]string, error) {
-	body := `<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>`
+	body := `<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:href/></d:prop></d:propfind>`
 	request, err := http.NewRequestWithContext(ctx, "PROPFIND", dirURL, strings.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -113,9 +114,23 @@ func (c *WebDAVClient) ListChildren(ctx context.Context, dirURL string) ([]strin
 	if err := xml.NewDecoder(response.Body).Decode(&multistatus); err != nil {
 		return nil, err
 	}
+	dirPath := ""
+	if response.Request != nil && response.Request.URL != nil {
+		dirPath = strings.TrimRight(response.Request.URL.Path, "/")
+	}
 	names := map[string]bool{}
 	for _, item := range multistatus.Responses {
-		name := path.Base(strings.TrimRight(item.Href, "/"))
+		hrefPath := item.Href
+		if parsed, err := url.Parse(item.Href); err == nil {
+			hrefPath = parsed.Path
+		} else if decoded, err := url.PathUnescape(hrefPath); err == nil {
+			hrefPath = decoded
+		}
+		hrefPath = strings.TrimRight(hrefPath, "/")
+		if dirPath != "" && hrefPath == dirPath {
+			continue
+		}
+		name := path.Base(hrefPath)
 		if name != "" && name != "." && name != "/" {
 			names[name] = true
 		}
@@ -141,7 +156,7 @@ func joinSegments(parts ...string) string {
 	for _, part := range parts {
 		part = strings.Trim(part, "/")
 		if part != "" {
-			cleaned = append(cleaned, part)
+			cleaned = append(cleaned, url.PathEscape(part))
 		}
 	}
 	return strings.Join(cleaned, "/")

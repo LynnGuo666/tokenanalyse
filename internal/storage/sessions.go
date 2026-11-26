@@ -31,6 +31,7 @@ func (db *DB) GetSessionSummaries(filters model.UsageFilters) ([]SessionSummary,
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	type key struct{ device, app, session string }
 	groups := map[key][]eventFact{}
 	for rows.Next() {

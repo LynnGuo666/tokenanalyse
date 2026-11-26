@@ -5,12 +5,72 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"tokenanalyse/internal/model"
+	"tokenanalyse/internal/pricing"
 	"tokenanalyse/internal/storage"
+
+	"github.com/shopspring/decimal"
 )
+
+func TestServerSyncRecordsPricingMetadataAndPreservesRemoteHashOnError(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	remote := storage.PricingSnapshot{VersionID: "remote-v1", Source: "remote", CreatedAt: time.Now().UTC(),
+		Models: []model.ModelPricing{{
+			ModelID: "model", DisplayName: "Model", InputCostPerMillion: decimal.NewFromInt(2),
+			OutputCostPerMillion: decimal.Zero, CacheReadCostPerMillion: decimal.Zero,
+			CacheCreationCostPerMillion: decimal.Zero, Currency: model.CurrencyUSD, Source: "remote",
+		}}}
+	remote.ContentHash = pricing.HashModels(remote.Models)
+	var failPricing atomic.Bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/events":
+			_ = json.NewEncoder(w).Encode(EventsResponse{NextCursor: "0"})
+		case "/api/v1/pricing":
+			if failPricing.Load() {
+				http.Error(w, "unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(remote)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+	runner := NewRunner(db, Config{Mode: ModeServer, Server: Server{BaseURL: upstream.URL}}, "device-local")
+	if report, err := runner.RunOnce(context.Background()); err != nil || len(report.Errors) != 0 {
+		t.Fatalf("first sync failed: report=%+v err=%v", report, err)
+	}
+	status, err := db.PricingSyncStatus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.RemoteHash != remote.ContentHash || status.LastCheckedAt == nil || status.LastSyncedAt == nil || status.LastError != "" {
+		t.Fatalf("unexpected pricing metadata after success: %+v", status)
+	}
+	lastSynced := *status.LastSyncedAt
+	failPricing.Store(true)
+	report, err := runner.RunOnce(context.Background())
+	status, statusErr := db.PricingSyncStatus()
+	if err != nil || len(report.Errors) == 0 {
+		t.Fatalf("pricing failure was not reported: report=%+v err=%v status=%+v statusErr=%v", report, err, status, statusErr)
+	}
+	status, err = db.PricingSyncStatus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.RemoteHash != remote.ContentHash || status.LastError == "" || status.LastSyncedAt == nil || !status.LastSyncedAt.Equal(lastSynced) {
+		t.Fatalf("pricing failure metadata was not preserved correctly: %+v", status)
+	}
+}
 
 func TestServerSyncUploadsAndDoesNotLoopPulledEvents(t *testing.T) {
 	db, err := storage.Open(":memory:")

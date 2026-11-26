@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -15,7 +16,8 @@ import (
 var schema string
 
 type DB struct {
-	conn *sql.DB
+	conn      *sql.DB
+	repriceMu sync.Mutex
 }
 
 func Open(path string) (*DB, error) {

@@ -48,18 +48,29 @@ func (db *DB) InsertEvents(events []model.UsageEvent, enqueue bool) (InsertResul
 		return result, err
 	}
 	pricingCache := map[string]model.ModelPricing{}
+	aliasCache := map[string][]modelAliasRule{}
 
 	for _, event := range events {
 		if event.ModelRaw == "" {
 			event.ModelRaw = event.Model
 		}
-		canonical := event.CanonicalModel
-		if canonical == "" || canonical == event.Model {
-			canonical, err = db.resolveModelTx(tx, event.SourceApp, event.Model)
+		aliasInput := event.ModelRaw
+		if aliasInput == "" {
+			aliasInput = event.Model
+		}
+		aliasFallback := event.CanonicalModel
+		if aliasFallback == "" {
+			aliasFallback = event.Model
+		}
+		rules, ok := aliasCache[event.SourceApp]
+		if !ok {
+			rules, err = db.loadAliasRulesTx(tx, event.SourceApp)
 			if err != nil {
 				return result, err
 			}
+			aliasCache[event.SourceApp] = rules
 		}
+		canonical := resolveModelWithAliasRules(aliasInput, aliasFallback, rules)
 		event.CanonicalModel = canonical
 		if event.PricingModel == "" {
 			event.PricingModel = canonical
@@ -90,12 +101,18 @@ func (db *DB) InsertEvents(events []model.UsageEvent, enqueue bool) (InsertResul
 
 		freshInput := event.Usage.FreshInput(event.SourceApp, event.InputTokenSemantics)
 		realTotal := event.Usage.RealTotal(event.SourceApp, event.InputTokenSemantics)
+		if event.CostMultiplier == "" {
+			event.CostMultiplier = "1"
+		}
+		multiplier, err := decimal.NewFromString(event.CostMultiplier)
+		if err != nil {
+			return result, fmt.Errorf("invalid cost multiplier %q: %w", event.CostMultiplier, err)
+		}
 		breakdown := model.CostBreakdown{
 			InputCost: decimal.Zero, OutputCost: decimal.Zero, CacheReadCost: decimal.Zero,
 			CacheCreationCost: decimal.Zero, TotalCost: decimal.Zero,
 		}
 		if found {
-			multiplier := decimal.RequireFromString(event.CostMultiplier)
 			breakdown = model.CalculateCost(event.SourceApp, event.Usage, pricing, event.InputTokenSemantics, multiplier)
 		}
 		costSnapshot := buildCostSnapshot(breakdown, pricing.Currency, exchangeRate, versionID)
@@ -251,7 +268,7 @@ func (db *DB) repriceFact(fact eventFact, versionID string, rate decimal.Decimal
 		return fact
 	}
 	breakdown := model.CalculateCost(fact.event.SourceApp, fact.event.Usage, pricing,
-		fact.event.InputTokenSemantics, decimal.RequireFromString(fact.event.CostMultiplier))
+		fact.event.InputTokenSemantics, costMultiplierOrOne(fact.event.CostMultiplier))
 	fact.costUSD, fact.costCNY = breakdown.TotalCost, breakdown.TotalCost
 	if pricing.Currency == model.CurrencyCNY {
 		fact.costUSD = breakdown.TotalCost.Div(rate)
@@ -726,8 +743,8 @@ func (db *DB) cnyExchangeRateTx(tx *sql.Tx) (decimal.Decimal, error) {
 		return decimal.NewFromFloat(7.2), nil
 	}
 	rate, err := decimal.NewFromString(value)
-	if err != nil {
-		return decimal.Zero, err
+	if err != nil || rate.LessThanOrEqual(decimal.Zero) {
+		return decimal.NewFromFloat(7.2), nil
 	}
 	return rate, nil
 }
@@ -755,6 +772,17 @@ func (db *DB) pricingForModelTx(tx *sql.Tx, versionID, modelID string) (model.Mo
 		}
 	}
 	return model.ModelPricing{}, false, nil
+}
+
+func costMultiplierOrOne(value string) decimal.Decimal {
+	if value == "" {
+		return decimal.NewFromInt(1)
+	}
+	multiplier, err := decimal.NewFromString(value)
+	if err != nil {
+		return decimal.NewFromInt(1)
+	}
+	return multiplier
 }
 
 func buildCostSnapshot(breakdown model.CostBreakdown, currency model.Currency, rate decimal.Decimal, versionID string) model.CostSnapshot {

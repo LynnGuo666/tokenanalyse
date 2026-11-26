@@ -17,6 +17,8 @@
       </div>
       <div class="topbar-actions">
         <span id="sync-status" class="status-pill">本地模式</span>
+        <button id="collect-btn" class="btn secondary">采集本机</button>
+        <button id="task-center-btn" class="btn secondary">任务 <span id="task-count" class="task-count">0</span></button>
         <button id="refresh-btn" class="btn secondary">刷新</button>
       </div>
     </header>
@@ -125,7 +127,11 @@
           <div class="panel">
             <div class="panel-head">
               <div><h2>模型定价</h2><p>价格单位为每百万 Token，统计按当前价格实时重算</p></div>
-              <button id="reload-pricing" class="btn secondary">重新加载</button>
+              <div style="display:flex;gap:8px">
+                <button id="sync-models-dev" class="btn secondary">同步 models.dev</button>
+                <button id="recalculate-pricing" class="btn secondary">重算费用</button>
+                <button id="reload-pricing" class="btn secondary">重新加载</button>
+              </div>
             </div>
             <div id="pricing-sync" class="muted" style="margin-bottom:12px"></div>
             <div class="table-wrap"><table id="pricing-table"></table></div>
@@ -143,6 +149,15 @@
         </div>
       </section>
     </main>
+
+    <div id="task-overlay" class="task-overlay hidden"></div>
+    <aside id="task-drawer" class="task-drawer hidden">
+      <div class="task-drawer-head">
+        <div><h2>任务中心</h2><p>所有状态变更操作都会在这里显示</p></div>
+        <button id="task-close" class="btn secondary">关闭</button>
+      </div>
+      <div id="task-list" class="task-list"></div>
+    </aside>
 
     <div id="toast" class="toast hidden"></div>
     <script type="module" src="/static/app.js"></script>

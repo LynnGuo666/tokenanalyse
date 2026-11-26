@@ -1,6 +1,9 @@
 package storage
 
-import "time"
+import (
+	"database/sql"
+	"time"
+)
 
 type SyncState struct {
 	DeviceID      string     `json:"deviceId"`
@@ -13,10 +16,10 @@ type SyncState struct {
 func (db *DB) GetSetting(key string) (string, error) {
 	var value string
 	err := db.conn.QueryRow(`SELECT value FROM settings WHERE key=?`, key).Scan(&value)
-	if err != nil {
+	if err == sql.ErrNoRows {
 		return "", nil
 	}
-	return value, nil
+	return value, err
 }
 
 func (db *DB) SetSetting(key, value string) error {
