@@ -57,10 +57,16 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: ./scripts/package.sh "$VERSION"
       - name: Upload release assets
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
-        run: gh release upload "$TAG" dist/* --clobber
+        run: |
+          for _ in {1..5}; do
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            sleep 3
+          done
+          gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
 
   ui-linux:
     needs: prepare
@@ -86,10 +92,16 @@ jobs:
           cp README.md LICENSE NOTICE dist/stage/
           tar -C dist/stage -czf "dist/tokenanalyse-ui_${VERSION}_linux_${ARCH}.tar.gz" .
       - name: Upload release assets
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
-        run: gh release upload "$TAG" dist/*.tar.gz --clobber
+        run: |
+          for _ in {1..5}; do
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            sleep 3
+          done
+          gh release upload "$TAG" dist/*.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
 
   ui-windows:
     needs: prepare
@@ -112,10 +124,16 @@ jobs:
           Copy-Item README.md,LICENSE,NOTICE dist/stage/
           Compress-Archive -Path dist/stage/* -DestinationPath "dist/tokenanalyse-ui_${env:VERSION}_windows_${arch}.zip" -Force
       - name: Upload release assets
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
-        run: gh release upload "$TAG" dist/*.zip --clobber
+        run: |
+          for _ in {1..5}; do
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            sleep 3
+          done
+          gh release upload "$TAG" dist/*.zip --clobber --repo "$GITHUB_REPOSITORY"
 
   ui-macos:
     needs: prepare
@@ -142,10 +160,16 @@ jobs:
           cp README.md LICENSE NOTICE dist/stage/
           tar -C dist/stage -czf "dist/tokenanalyse-ui_${VERSION}_darwin_${ARCH}.tar.gz" .
       - name: Upload release assets
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
-        run: gh release upload "$TAG" dist/*.tar.gz --clobber
+        run: |
+          for _ in {1..5}; do
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            sleep 3
+          done
+          gh release upload "$TAG" dist/*.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
 
   publish:
     needs: [prepare, server, ui-linux, ui-windows, ui-macos]
