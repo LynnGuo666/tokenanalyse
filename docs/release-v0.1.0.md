@@ -28,7 +28,12 @@
 
 ### 桌面 UI
 
+- `tokenanalyse-ui_0.1.0_linux_amd64.tar.gz`
 - `tokenanalyse-ui_0.1.0_linux_arm64.tar.gz`
+- `tokenanalyse-ui_0.1.0_darwin_amd64.tar.gz`
+- `tokenanalyse-ui_0.1.0_darwin_arm64.tar.gz`
+- `tokenanalyse-ui_0.1.0_windows_amd64.zip`
+- `tokenanalyse-ui_0.1.0_windows_arm64.zip`
 
 ## 运行
 
@@ -51,8 +56,8 @@ docker run --rm -p 8787:8787 -v ./data:/data tokenanalyse:0.1.0
 
 ## 已知限制
 
-- Windows/macOS 桌面 UI 尚未在本 Release 提供，需要对应构建 Runner。
 - Linux 桌面 UI 需要 GTK3 与 WebKitGTK 4.1。
+- macOS 桌面 UI 尚未进行 Apple 签名/公证，首次运行如被 Gatekeeper 拦截，可在终端执行 `xattr -dr com.apple.quarantine /path/to/tokenanalyse-ui` 后重试。
 - 费用是公共价格表估算值，不代表供应商实际账单。
 - OpenClaw、Hermes 暂无稳定请求级 Token 日志。
 
