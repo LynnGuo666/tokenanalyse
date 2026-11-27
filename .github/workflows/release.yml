@@ -168,6 +168,7 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
           ARCH: ${{ matrix.arch }}
+          CGO_LDFLAGS: "-framework UniformTypeIdentifiers"
         run: |
           mkdir -p dist/stage
           go build -tags production -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "dist/stage/tokenanalyse-ui" ./cmd/tokenanalyse-ui
