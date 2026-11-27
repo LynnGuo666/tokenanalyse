@@ -47,6 +47,8 @@ func NewRouter(state *AppState) http.Handler {
 	mux.HandleFunc("POST /api/v1/tasks/aliases/upsert", state.handleAliasUpsertTask)
 	mux.HandleFunc("POST /api/v1/tasks/aliases/delete", state.handleAliasDeleteTask)
 
+	mux.HandleFunc("GET /styles.css", handleStyles)
+	mux.HandleFunc("GET /app.js", handleAppJS)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(webFiles))))
 	mux.HandleFunc("GET /", state.handleIndex)
 	return withMiddleware(state, mux)
@@ -75,6 +77,18 @@ func withMiddleware(state *AppState, next http.Handler) http.Handler {
 func (s *AppState) handleIndex(w http.ResponseWriter, r *http.Request) {
 	data, _ := webFiles.ReadFile("web/index.html")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(data)
+}
+
+func handleStyles(w http.ResponseWriter, r *http.Request) {
+	data, _ := webFiles.ReadFile("web/styles.css")
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	_, _ = w.Write(data)
+}
+
+func handleAppJS(w http.ResponseWriter, r *http.Request) {
+	data, _ := webFiles.ReadFile("web/app.js")
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	_, _ = w.Write(data)
 }
 

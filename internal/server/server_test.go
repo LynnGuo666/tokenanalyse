@@ -15,6 +15,27 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+func TestStaticAssetsAreServedAtRoot(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	state := &AppState{DB: db, Version: "test"}
+	httpServer := httptest.NewServer(NewRouter(state))
+	defer httpServer.Close()
+	for _, path := range []string{"/styles.css", "/app.js"} {
+		response, err := http.Get(httpServer.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("%s status: %d", path, response.StatusCode)
+		}
+		response.Body.Close()
+	}
+}
+
 func TestTaskCenterAPI(t *testing.T) {
 	db, err := storage.Open(":memory:")
 	if err != nil {
