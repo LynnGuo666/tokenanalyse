@@ -93,7 +93,7 @@ jobs:
         run: |
           mkdir -p dist
           ARCH="$(go env GOARCH)"
-          go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "dist/tokenanalyse-ui_${VERSION}_linux_${ARCH}" ./cmd/tokenanalyse-ui
+          go build -tags "production webkit2_41" -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "dist/tokenanalyse-ui_${VERSION}_linux_${ARCH}" ./cmd/tokenanalyse-ui
           mkdir -p dist/stage
           cp "dist/tokenanalyse-ui_${VERSION}_linux_${ARCH}" dist/stage/
           cp README.md LICENSE NOTICE dist/stage/
@@ -132,7 +132,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           $arch = go env GOARCH
-          go build -trimpath -ldflags "-s -w -X main.version=$env:VERSION" -o "dist/tokenanalyse-ui_${env:VERSION}_windows_${arch}.exe" ./cmd/tokenanalyse-ui
+          go build -tags production -trimpath -ldflags "-s -w -X main.version=$env:VERSION" -o "dist/tokenanalyse-ui_${env:VERSION}_windows_${arch}.exe" ./cmd/tokenanalyse-ui
           New-Item -ItemType Directory -Force dist/stage | Out-Null
           Copy-Item "dist/tokenanalyse-ui_${env:VERSION}_windows_${arch}.exe" dist/stage/
           Copy-Item README.md,LICENSE,NOTICE dist/stage/
@@ -170,7 +170,7 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           mkdir -p dist/stage
-          go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "dist/stage/tokenanalyse-ui" ./cmd/tokenanalyse-ui
+          go build -tags production -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "dist/stage/tokenanalyse-ui" ./cmd/tokenanalyse-ui
           cp README.md LICENSE NOTICE dist/stage/
           tar -C dist/stage -czf "dist/tokenanalyse-ui_${VERSION}_darwin_${ARCH}.tar.gz" .
       - name: Upload release assets
