@@ -28,12 +28,23 @@
 
 ### 桌面 UI
 
-- `tokenanalyse-ui_0.1.0_linux_amd64.tar.gz`
-- `tokenanalyse-ui_0.1.0_linux_arm64.tar.gz`
-- `tokenanalyse-ui_0.1.0_darwin_amd64.tar.gz`
-- `tokenanalyse-ui_0.1.0_darwin_arm64.tar.gz`
-- `tokenanalyse-ui_0.1.0_windows_amd64.zip`
-- `tokenanalyse-ui_0.1.0_windows_arm64.zip`
+macOS（解压后为 `TokenAnalyse.app`）：
+
+- `tokenanalyse-ui_0.1.0_darwin_amd64.app.zip`
+- `tokenanalyse-ui_0.1.0_darwin_arm64.app.zip`
+- 同时提供 `.tar.gz` 版本
+
+Windows（可直接运行）：
+
+- `tokenanalyse-ui_0.1.0_windows_amd64.exe`
+- `tokenanalyse-ui_0.1.0_windows_arm64.exe`
+- 同时提供 `.zip` 版本
+
+Linux（可直接运行）：
+
+- `tokenanalyse-ui_0.1.0_linux_amd64`
+- `tokenanalyse-ui_0.1.0_linux_arm64`
+- 同时提供 `.tar.gz` 版本
 
 ## 运行
 
