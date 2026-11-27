@@ -2,6 +2,8 @@
 
 跨平台、可 headless 的 AI CLI Token 用量分析、价格估算与多设备同步服务。
 
+发布与下载：https://github.com/LynnGuo666/tokenanalyse/releases
+
 支持 Claude Code、Codex、Gemini CLI、Grok Build、OpenCode、Pi、Oh My Pi、MiniMax Code、Kimi Code、GitHub Copilot CLI、CodeBuddy、WorkBuddy、DeepSeek Harness、MCode、Antigravity 等数据源。
 
 ## 主要能力
