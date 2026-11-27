@@ -1,0 +1,158 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version without leading v
+        required: true
+        default: "0.1.0"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "TokenAnalyse $TAG" --notes-file docs/release-v0.1.0.md --draft --target "$GITHUB_SHA"
+          fi
+
+  server:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - name: Build server and CLI packages
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: ./scripts/package.sh "$VERSION"
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release upload "$TAG" dist/* --clobber
+
+  ui-linux:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - name: Install UI system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - name: Build Linux UI
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          mkdir -p dist
+          ARCH="$(go env GOARCH)"
+          go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "dist/tokenanalyse-ui_${VERSION}_linux_${ARCH}" ./cmd/tokenanalyse-ui
+          mkdir -p dist/stage
+          cp "dist/tokenanalyse-ui_${VERSION}_linux_${ARCH}" dist/stage/
+          cp README.md LICENSE NOTICE dist/stage/
+          tar -C dist/stage -czf "dist/tokenanalyse-ui_${VERSION}_linux_${ARCH}.tar.gz" .
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release upload "$TAG" dist/*.tar.gz --clobber
+
+  ui-windows:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - name: Build Windows UI
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $arch = go env GOARCH
+          go build -trimpath -ldflags "-s -w -X main.version=$env:VERSION" -o "dist/tokenanalyse-ui_${env:VERSION}_windows_${arch}.exe" ./cmd/tokenanalyse-ui
+          New-Item -ItemType Directory -Force dist/stage | Out-Null
+          Copy-Item "dist/tokenanalyse-ui_${env:VERSION}_windows_${arch}.exe" dist/stage/
+          Copy-Item README.md,LICENSE,NOTICE dist/stage/
+          Compress-Archive -Path dist/stage/* -DestinationPath "dist/tokenanalyse-ui_${env:VERSION}_windows_${arch}.zip" -Force
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release upload "$TAG" dist/*.zip --clobber
+
+  ui-macos:
+    needs: prepare
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+          - runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - name: Build macOS UI
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p dist/stage
+          go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "dist/stage/tokenanalyse-ui" ./cmd/tokenanalyse-ui
+          cp README.md LICENSE NOTICE dist/stage/
+          tar -C dist/stage -czf "dist/tokenanalyse-ui_${VERSION}_darwin_${ARCH}.tar.gz" .
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release upload "$TAG" dist/*.tar.gz --clobber
+
+  publish:
+    needs: [prepare, server, ui-linux, ui-windows, ui-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release edit "$TAG" --draft=false
