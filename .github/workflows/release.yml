@@ -103,12 +103,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ARCH: ${{ matrix.arch }}
         run: |
           for _ in {1..5}; do
             gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
             sleep 3
           done
-          gh release upload "$TAG" dist/*.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" dist/*.tar.gz "dist/tokenanalyse-ui_${VERSION}_linux_${ARCH}" --clobber --repo "$GITHUB_REPOSITORY"
 
   ui-windows:
     needs: prepare
@@ -142,12 +144,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ARCH: ${{ matrix.arch }}
         run: |
           for _ in {1..5}; do
             gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
             sleep 3
           done
-          gh release upload "$TAG" dist/*.zip --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" dist/*.zip "dist/tokenanalyse-ui_${VERSION}_windows_${ARCH}.exe" --clobber --repo "$GITHUB_REPOSITORY"
 
   ui-macos:
     needs: prepare
@@ -170,10 +174,33 @@ jobs:
           ARCH: ${{ matrix.arch }}
           CGO_LDFLAGS: "-framework UniformTypeIdentifiers"
         run: |
-          mkdir -p dist/stage
-          go build -tags production -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "dist/stage/tokenanalyse-ui" ./cmd/tokenanalyse-ui
+          APP="dist/stage/TokenAnalyse.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          go build -tags production -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$APP/Contents/MacOS/tokenanalyse-ui" ./cmd/tokenanalyse-ui
+          cat > "$APP/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key><string>en</string>
+            <key>CFBundleExecutable</key><string>tokenanalyse-ui</string>
+            <key>CFBundleIdentifier</key><string>com.tokenanalyse.app</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+            <key>CFBundleName</key><string>TokenAnalyse</string>
+            <key>CFBundleDisplayName</key><string>TokenAnalyse</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+            <key>CFBundleVersion</key><string>${VERSION}</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+            <key>NSPrincipalClass</key><string>NSApplication</string>
+          </dict>
+          </plist>
+          PLIST
+          codesign --force --deep --sign - "$APP" || true
           cp README.md LICENSE NOTICE dist/stage/
           tar -C dist/stage -czf "dist/tokenanalyse-ui_${VERSION}_darwin_${ARCH}.tar.gz" .
+          (cd dist/stage && zip -qr "../tokenanalyse-ui_${VERSION}_darwin_${ARCH}.app.zip" TokenAnalyse.app README.md LICENSE NOTICE)
       - name: Upload release assets
         shell: bash
         env:
@@ -184,7 +211,7 @@ jobs:
             gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
             sleep 3
           done
-          gh release upload "$TAG" dist/*.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" dist/*.tar.gz dist/*.zip --clobber --repo "$GITHUB_REPOSITORY"
 
   publish:
     needs: [prepare, server, ui-linux, ui-windows, ui-macos]
